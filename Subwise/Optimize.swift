@@ -1,0 +1,82 @@
+import SwiftUI
+
+struct OptimizeView: View {
+    @Environment(AppStore.self) private var store
+    @State private var showingPlan = false
+    var body: some View {
+        @Bindable var store = store
+        NavigationStack {
+            ScrollView { VStack(alignment: .leading, spacing: 16) {
+                HStack { Label("\(store.opportunities.count) OPPORTUNITIES", systemImage: "sparkles").font(.caption.bold()).foregroundStyle(Theme.green); Spacer(); Text("\(store.availableSavings.compactFormatted)/year").font(.headline).foregroundStyle(Theme.green) }
+                Text("Start with the highest-impact changes. You approve every action.").foregroundStyle(.secondary)
+                ForEach($store.opportunities) { $opportunity in OpportunityCard(opportunity: $opportunity) }
+                PrimaryButton(title: "Apply selected plan", systemImage: "arrow.right") { showingPlan = true }.padding(.top, 4)
+            }.padding() }.background(Color(.systemGroupedBackground)).navigationTitle("Your savings plan")
+            .sheet(isPresented: $showingPlan) { SavingsPlanView() }
+        }
+    }
+}
+
+struct OpportunityCard: View {
+    @Binding var opportunity: SavingsOpportunity
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack { Text(opportunity.kind.rawValue).font(.caption2.bold()).foregroundStyle(Theme.green).padding(.horizontal, 9).padding(.vertical, 5).background(Theme.mint, in: Capsule()); Spacer(); Text("\(opportunity.annualSavings.compactFormatted)/yr").font(.headline).foregroundStyle(Theme.green) }
+            Text(opportunity.title).font(.headline)
+            Text(opportunity.explanation).font(.subheadline).foregroundStyle(.secondary)
+            HStack { Label("\(opportunity.confidence) confidence", systemImage: "checkmark.shield"); Spacer(); Label("\(opportunity.effortMinutes) min", systemImage: "clock") }.font(.caption).foregroundStyle(.secondary)
+            Toggle("Include in plan", isOn: $opportunity.isSelected).font(.subheadline.bold())
+        }.cardStyle()
+    }
+}
+
+struct SavingsPlanView: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingConfirmation = false
+    private var monthlySavings: Money { Money(cents: store.selectedSavings.cents / 12) }
+    var body: some View {
+        NavigationStack { ScrollView { VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) { Text("YOUR NEW MONTHLY SPEND").font(.caption.bold()).foregroundStyle(Theme.mint); Text((Money(cents: max(0, store.monthlySpend.cents - monthlySavings.cents))).formatted).font(.largeTitle.bold()).foregroundStyle(.white); Text("Save \(monthlySavings.formatted)/month • \(store.selectedSavings.formatted)/year").foregroundStyle(.white.opacity(0.75)) }.frame(maxWidth: .infinity, alignment: .leading).padding(22).background(Theme.ink, in: RoundedRectangle(cornerRadius: 22))
+            Text("Selected actions").font(.title2.bold())
+            ForEach(store.opportunities.filter(\.isSelected)) { item in HStack { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green); VStack(alignment: .leading) { Text(item.title).font(.headline); Text("Estimated \(item.annualSavings.formatted)/year").font(.caption).foregroundStyle(.secondary) }; Spacer() }.cardStyle() }
+            VStack(alignment: .leading, spacing: 6) { Label("You stay in control", systemImage: "hand.raised.fill").font(.headline); Text("Subwise will never cancel or change a plan without your explicit approval.").font(.subheadline).foregroundStyle(.secondary) }.cardStyle()
+            PrimaryButton(title: "Start savings plan", systemImage: "arrow.right") { showingConfirmation = true }
+        }.padding() }.background(Color(.systemGroupedBackground)).navigationTitle("Savings Plan").navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) } }
+        .alert("Start this plan?", isPresented: $showingConfirmation) { Button("Start") { startPlan() }; Button("Not now", role: .cancel) {} } message: { Text("We’ll guide you through each selected action and verify savings only after you confirm completion.") } }
+    }
+
+    private func startPlan() { Task { try? await store.startSelectedSavingsPlan(); dismiss() } }
+}
+
+struct CancellationView: View {
+    let subscription: Subscription
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppStore.self) private var store
+    @Environment(\.openURL) private var openURL
+    @State private var completed = false
+    var body: some View {
+        NavigationStack { ScrollView { VStack(alignment: .leading, spacing: 18) {
+            HStack { VStack(alignment: .leading) { Text("Save \(subscription.monthlyCost.formatted)/month").font(.headline).foregroundStyle(Theme.green); Text("• \(subscription.annualCost.formatted)/year").foregroundStyle(Theme.green) }; Spacer(); Label("3 min", systemImage: "clock").font(.caption).foregroundStyle(.blue) }
+            VStack(alignment: .leading, spacing: 6) { Text("You stay in control").font(.headline); Text("We guide the process and never submit a cancellation without your approval.").font(.subheadline).foregroundStyle(.secondary) }.padding().background(Theme.mint, in: RoundedRectangle(cornerRadius: 18))
+            Text("Cancellation steps").font(.title2.bold())
+            ForEach(Array(["Open your \(subscription.name) account", "Choose Manage plan", "Review cancellation"].enumerated()), id: \.offset) { index, step in
+                HStack(alignment: .top, spacing: 12) { Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white).frame(width: 28, height: 28).background(index == 0 ? Theme.ink : Color.secondary, in: Circle()); VStack(alignment: .leading) { Text(step).font(.headline); Text(index == 0 ? "We’ll take you to the correct account page." : "Review all details before confirming.").font(.caption).foregroundStyle(.secondary) } }.padding(.vertical, 4)
+            }
+            PrimaryButton(title: "Open \(subscription.name) cancellation help", systemImage: "arrow.up.right.square") { openCancellationHelp() }
+            Text("After you finish, return to Subwise so we can verify that the subscription no longer renews.").font(.caption).foregroundStyle(.secondary)
+        }.padding() }.navigationTitle("Cancel \(subscription.name)").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) } }
+        .confirmationDialog("Did you successfully cancel?", isPresented: $completed) {
+            Button("Yes, I cancelled") { record(action: "cancelled", savings: subscription.annualCost) }
+            Button("I changed plans instead") { record(action: "changed_plan", savings: Money(cents: 0)) }
+            Button("Not yet", role: .cancel) {}
+        } }
+    }
+    private func record(action: String, savings: Money) { Task { try? await store.verifySavings(for: subscription, action: action, verifiedAnnualSavings: savings); dismiss() } }
+    private func openCancellationHelp() {
+        var components = URLComponents(string: "https://www.google.com/search")!
+        components.queryItems = [URLQueryItem(name: "q", value: "cancel \(subscription.name) subscription official")]
+        if let url = components.url { openURL(url); completed = true }
+    }
+}

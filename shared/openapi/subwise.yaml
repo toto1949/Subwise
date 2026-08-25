@@ -1,0 +1,75 @@
+openapi: 3.1.0
+info:
+  title: Subwise API
+  version: 1.0.0
+servers:
+  - url: /api/v1
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+    SubscriptionInput:
+      type: object
+      required: [displayName, amountCents, frequency, category]
+      properties:
+        displayName: { type: string }
+        planName: { type: string }
+        amountCents: { type: integer, minimum: 0 }
+        currency: { type: string, const: USD }
+        frequency: { type: string, enum: [weekly, biweekly, monthly, quarterly, semiannual, yearly, irregular] }
+        nextRenewalAt: { type: string, format: date-time }
+        category: { type: string }
+        usage: { type: string, enum: [high, medium, low, unknown] }
+security: [{ bearerAuth: [] }]
+paths:
+  /auth/apple:
+    post:
+      security: []
+      summary: Exchange a validated Apple identity token for a Subwise session
+      responses: { "200": { description: Session tokens } }
+  /auth/refresh:
+    post:
+      security: []
+      summary: Rotate a refresh token
+      responses: { "200": { description: Rotated session tokens } }
+  /dashboard:
+    get:
+      summary: Get the cached dashboard projection
+      responses: { "200": { description: Dashboard } }
+  /subscriptions:
+    get:
+      summary: List the authenticated user's subscriptions
+      responses: { "200": { description: Subscriptions } }
+    post:
+      summary: Create a subscription
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/SubscriptionInput" } } }
+      responses: { "201": { description: Created } }
+  /optimization/generate:
+    post:
+      summary: Generate deterministic recommendations and an optimization plan
+      responses: { "201": { description: Optimization plan } }
+  /agent/messages:
+    post:
+      summary: Send structured financial context to the advisory Savings Agent
+      responses: { "200": { description: Validated structured response } }
+  /households/current:
+    get:
+      summary: Get the user's authorized household view
+      responses: { "200": { description: Household } }
+  /savings:
+    get:
+      summary: Get savings events and verified lifetime savings
+      responses: { "200": { description: Savings ledger } }

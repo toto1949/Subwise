@@ -1,0 +1,54 @@
+{
+  "identifier" : "B0C42208-7A7F-4E4B-914E-A0F9E6D58F72",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_applicationInternalID" : "",
+    "_developerTeamID" : "3K82B6HTAT",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "82D43D88-E1A1-41C8-8902-BD31F1FF0F98",
+      "localizations" : [],
+      "name" : "Subwise Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "6.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "72B9FF50-5D1C-45A7-A2D4-07DF6F8C4C31",
+          "introductoryOffer" : null,
+          "localizations" : [ { "description" : "Flexible monthly access to premium savings tools", "displayName" : "Subwise Pro Monthly", "locale" : "en_US" } ],
+          "productID" : "com.subwise.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Subwise Pro Monthly",
+          "subscriptionGroupID" : "82D43D88-E1A1-41C8-8902-BD31F1FF0F98",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "59.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "00AB684E-B048-467D-9C06-D04FF9B20189",
+          "introductoryOffer" : null,
+          "localizations" : [ { "description" : "Annual access with the best available value", "displayName" : "Subwise Pro Annual", "locale" : "en_US" } ],
+          "productID" : "com.subwise.pro.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Subwise Pro Annual",
+          "subscriptionGroupID" : "82D43D88-E1A1-41C8-8902-BD31F1FF0F98",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : { "major" : 3, "minor" : 0 }
+}

@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: subwise
+      POSTGRES_PASSWORD: subwise
+      POSTGRES_DB: subwise
+    ports: ["5432:5432"]
+    volumes: ["subwise-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U subwise"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    env_file: ./backend/.env
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+volumes:
+  subwise-postgres:

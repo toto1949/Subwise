@@ -1,0 +1,400 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BillingFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  YEARLY
+  IRREGULAR
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIAL
+  NEEDS_REVIEW
+  CANCELLED
+}
+
+enum SavingsStatus {
+  PROPOSED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  USER_VERIFIED
+  FAILED
+  DISMISSED
+}
+
+enum HouseholdSharingMode {
+  OPTIMIZATION_ONLY
+  SERVICE_NAME
+  SERVICE_AND_PRICE
+}
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  appleSubject String @unique
+  email String?
+  displayName String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions UserSession[]
+  subscriptions Subscription[]
+  householdMemberships HouseholdMember[]
+  ownedHouseholds Household[] @relation("HouseholdOwner")
+  optimizationPlans OptimizationPlan[]
+  conversations AIConversation[]
+  notificationPreference NotificationPreference?
+  eligibilityProfile EligibilityProfile?
+  auditEvents AuditEvent[]
+}
+
+model UserSession {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  refreshTokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Household {
+  id String @id @default(uuid()) @db.Uuid
+  ownerId String @db.Uuid
+  name String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  owner User @relation("HouseholdOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members HouseholdMember[]
+  @@index([ownerId])
+}
+
+model HouseholdMember {
+  id String @id @default(uuid()) @db.Uuid
+  householdId String @db.Uuid
+  userId String? @db.Uuid
+  invitedEmail String?
+  displayName String
+  sharingMode HouseholdSharingMode @default(OPTIMIZATION_ONLY)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@unique([householdId, userId])
+}
+
+model Merchant {
+  id String @id @default(uuid()) @db.Uuid
+  canonicalName String @unique
+  domain String?
+  category String
+  logoUrl String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  aliases MerchantAlias[]
+  plans MerchantPlan[]
+  benefits MerchantBenefit[]
+  subscriptions Subscription[]
+  cancellationGuide CancellationGuide?
+  outgoingAlternatives MerchantAlternative[] @relation("AlternativeSource")
+  incomingAlternatives MerchantAlternative[] @relation("AlternativeTarget")
+}
+
+model MerchantAlias {
+  id String @id @default(uuid()) @db.Uuid
+  merchantId String @db.Uuid
+  rawAlias String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+}
+
+model MerchantPlan {
+  id String @id @default(uuid()) @db.Uuid
+  merchantId String @db.Uuid
+  name String
+  frequency BillingFrequency
+  priceCents Int
+  currency String @default("USD")
+  planType String
+  householdSize Int?
+  eligibilityType String?
+  sourceUrl String?
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+}
+
+model MerchantBenefit {
+  id String @id @default(uuid()) @db.Uuid
+  merchantId String @db.Uuid
+  provider String
+  description String
+  eligibilityRequirements String
+  sourceUrl String
+  verifiedAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+}
+
+model MerchantAlternative {
+  id String @id @default(uuid()) @db.Uuid
+  sourceMerchantId String @db.Uuid
+  alternativeMerchantId String @db.Uuid
+  rationale String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  source Merchant @relation("AlternativeSource", fields: [sourceMerchantId], references: [id], onDelete: Cascade)
+  alternative Merchant @relation("AlternativeTarget", fields: [alternativeMerchantId], references: [id], onDelete: Cascade)
+  @@unique([sourceMerchantId, alternativeMerchantId])
+}
+
+model Subscription {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  merchantId String? @db.Uuid
+  rawMerchantName String
+  displayName String
+  planName String?
+  amountCents Int
+  currency String @default("USD")
+  frequency BillingFrequency
+  nextRenewalAt DateTime?
+  status SubscriptionStatus @default(ACTIVE)
+  category String
+  valueScore Int?
+  usage String @default("unknown")
+  isImportant Boolean @default(false)
+  detectedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  transactions RecurringTransaction[]
+  recommendations Recommendation[]
+  savingsEvents SavingsEvent[]
+  priceObservations PriceObservation[]
+  trial Trial?
+  @@index([userId, status])
+}
+
+model RecurringTransaction {
+  id String @id @default(uuid()) @db.Uuid
+  subscriptionId String @db.Uuid
+  externalId String? @unique
+  rawMerchantName String
+  amountCents Int
+  currency String @default("USD")
+  transactedAt DateTime
+  confidence Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+}
+
+model InstitutionConnection {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  providerItemId String @unique
+  encryptedAccessToken String
+  institutionName String
+  status String @default("active")
+  cursor String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId])
+}
+
+model CancellationGuide {
+  id String @id @default(uuid()) @db.Uuid
+  merchantId String @unique @db.Uuid
+  cancellationUrl String
+  difficulty String
+  estimatedMinutes Int
+  verifiedAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  steps CancellationStep[]
+}
+
+model CancellationStep {
+  id String @id @default(uuid()) @db.Uuid
+  guideId String @db.Uuid
+  sequence Int
+  instruction String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  guide CancellationGuide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  @@unique([guideId, sequence])
+}
+
+model Recommendation {
+  id String @id @default(uuid()) @db.Uuid
+  subscriptionId String? @db.Uuid
+  type String
+  estimatedMonthlySavingsCents Int
+  estimatedAnnualSavingsCents Int
+  confidence Float
+  effortMinutes Int
+  reasonCodes Json
+  explanation String
+  status SavingsStatus @default(PROPOSED)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  optimizationActions OptimizationAction[]
+  savingsEvents SavingsEvent[]
+}
+
+model OptimizationPlan {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  currentMonthlyCents Int
+  projectedMonthlyCents Int
+  status SavingsStatus @default(PROPOSED)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actions OptimizationAction[]
+}
+
+model OptimizationAction {
+  id String @id @default(uuid()) @db.Uuid
+  planId String @db.Uuid
+  recommendationId String @db.Uuid
+  sequence Int
+  status SavingsStatus @default(PROPOSED)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  plan OptimizationPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  recommendation Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+  @@unique([planId, recommendationId])
+}
+
+model SavingsEvent {
+  id String @id @default(uuid()) @db.Uuid
+  subscriptionId String @db.Uuid
+  recommendationId String? @db.Uuid
+  action String
+  estimatedAnnualSavingsCents Int
+  verifiedAnnualSavingsCents Int?
+  status SavingsStatus @default(PROPOSED)
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  recommendation Recommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+}
+
+model Trial {
+  id String @id @default(uuid()) @db.Uuid
+  subscriptionId String @unique @db.Uuid
+  endsAt DateTime
+  renewalPriceCents Int
+  frequency BillingFrequency
+  source String
+  extractionConfidence Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+}
+
+model NotificationPreference {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+  reminderDays Int[] @default([7, 3, 1])
+  renewalAlerts Boolean @default(true)
+  priceAlerts Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PriceObservation {
+  id String @id @default(uuid()) @db.Uuid
+  subscriptionId String @db.Uuid
+  amountCents Int
+  observedAt DateTime
+  source String
+  confirmedIncrease Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+}
+
+model AIConversation {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  title String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AIMessage[]
+}
+
+model AIMessage {
+  id String @id @default(uuid()) @db.Uuid
+  conversationId String @db.Uuid
+  role String
+  content String
+  requestId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+model EligibilityProfile {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+  student Boolean @default(false)
+  educator Boolean @default(false)
+  military Boolean @default(false)
+  healthcareWorker Boolean @default(false)
+  employerBenefits Json?
+  universityBenefits Json?
+  verifiedAttributes Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+  userId String? @db.Uuid
+  operation String
+  entityType String?
+  entityId String?
+  requestId String?
+  metadata Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model WebhookEvent {
+  id String @id @default(uuid()) @db.Uuid
+  provider String
+  externalId String
+  type String
+  status String @default("received")
+  processedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([provider, externalId])
+}
