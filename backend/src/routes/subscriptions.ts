@@ -31,10 +31,16 @@ const plugin: FastifyPluginAsync = async (app) => {
   app.patch("/subscriptions/:id", async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const body = createSchema.partial().parse(request.body);
-    const found = await app.db.subscription.findFirst({ where: { id, userId: request.userId }, select: { id: true } });
+    const found = await app.db.subscription.findFirst({ where: { id, userId: request.userId } });
     if (!found) throw new AppError("SUBSCRIPTION_NOT_FOUND", "Subscription not found", 404);
     const { frequency: nextFrequency, isTrial, ...fields } = body;
-    return app.db.subscription.update({ where: { id }, data: { ...fields, ...(nextFrequency ? { frequency: prismaFrequency(nextFrequency) } : {}), ...(isTrial !== undefined ? { status: isTrial ? "TRIAL" : "ACTIVE" } : {}) } });
+    const effectiveFrequency = nextFrequency ?? found.frequency.toLowerCase() as z.infer<typeof frequency>;
+    const effectiveAmount = body.amountCents ?? found.amountCents;
+    const effectiveUsage = body.usage ?? found.usage as "high" | "medium" | "low" | "unknown";
+    const effectiveTrial = isTrial ?? found.status === "TRIAL";
+    const score = calculateValueScore({ monthlyCents: monthlyEquivalent(effectiveAmount, effectiveFrequency), usage: effectiveUsage, householdUsers: 1, isDuplicate: false, hasCheaperAlternative: false, isImportant: found.isImportant, priceIncreasePercent: 0, isTrial: effectiveTrial });
+    const merchant = body.displayName ? normalizeMerchant(body.displayName) : null;
+    return app.db.subscription.update({ where: { id }, data: { ...fields, ...(body.displayName ? { rawMerchantName: body.displayName, displayName: merchant!.canonicalName } : {}), ...(nextFrequency ? { frequency: prismaFrequency(nextFrequency) } : {}), ...(isTrial !== undefined ? { status: isTrial ? "TRIAL" : "ACTIVE" } : {}), valueScore: score.score } });
   });
   app.delete("/subscriptions/:id", async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);

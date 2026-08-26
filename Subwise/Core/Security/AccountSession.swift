@@ -34,6 +34,7 @@ final class AccountSession {
     }
 
     func continueOffline() { state = .offline }
+    func requireAuthentication() { state = .signedOut }
     #if DEBUG
     func continueAsDeveloper() { state = .development }
     #endif

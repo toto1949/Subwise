@@ -20,6 +20,11 @@ nonisolated enum SubscriptionCategory: String, CaseIterable, Identifiable, Codab
 
 nonisolated enum SubscriptionStatus: String, Codable, Sendable { case active = "Active", trial = "Trial", review = "Needs review" }
 
+nonisolated enum SubscriptionUsage: String, CaseIterable, Identifiable, Codable, Sendable {
+    case high = "High", medium = "Medium", low = "Low", unknown = "Not reported"
+    var id: Self { self }
+}
+
 nonisolated struct Subscription: Identifiable, Hashable, Codable, Sendable {
     let id: UUID
     var name: String
@@ -29,11 +34,25 @@ nonisolated struct Subscription: Identifiable, Hashable, Codable, Sendable {
     var category: SubscriptionCategory
     var status: SubscriptionStatus
     var valueScore: Int
+    var usage: SubscriptionUsage = .unknown
+    var isImportant: Bool = false
     var symbol: String
     var colorName: String
     var annualCost: Money { monthlyCost * 12 }
     var scoreLabel: String {
         switch valueScore { case 80...: "Great value"; case 60...: "Good value"; case 40...: "Review"; case 20...: "Poor value"; default: "Likely waste" }
+    }
+}
+
+nonisolated enum SubscriptionValueScore {
+    static func calculate(monthlyCost: Money, usage: SubscriptionUsage, isImportant: Bool, isTrial: Bool) -> Int {
+        var score = 50
+        let usageAdjustment = switch usage { case .high: 30; case .medium: 12; case .low: -22; case .unknown: 0 }
+        score += usageAdjustment
+        if isImportant { score += 15 }
+        if isTrial { score -= 4 }
+        if monthlyCost.cents >= 5_000, usage != .high { score -= 8 }
+        return min(100, max(0, score))
     }
 }
 
@@ -103,20 +122,8 @@ final class AppStore {
     var selectedSavings: Money { opportunities.filter(\.isSelected).reduce(Money(cents: 0)) { $0 + $1.annualSavings } }
     var lifetimeVerifiedSavings: Money { savingsEvents.filter { $0.status == .userVerified }.compactMap(\.verifiedAnnualSavings).reduce(Money(cents: 0), +) }
     var householdMonthlySpend: Money { householdMembers.reduce(monthlySpend) { $0 + $1.monthlySpend } }
-    var householdInsights: [HouseholdInsight] {
-        var results: [HouseholdInsight] = []
-        if householdMembers.count > 1, subscriptions.contains(where: { $0.category == .music }) {
-            results.append(.init(id: "music-family", title: "Shared music plan", detail: "Compare individual music plans with a household plan.", annualSavings: Money(cents: 9600)))
-        }
-        let cloudCount = subscriptions.filter { $0.category == .cloud || $0.category == .productivity }.count
-        if cloudCount > 1 {
-            results.append(.init(id: "cloud-overlap", title: "Cloud storage overlap", detail: "Review storage included across your current services.", annualSavings: Money(cents: min(18000, cloudCount * 4800))))
-        }
-        if householdMembers.count > 1, subscriptions.contains(where: { $0.category == .streaming }) {
-            results.append(.init(id: "streaming-overlap", title: "Streaming overlap", detail: "Ask members which streaming services they already share.", annualSavings: Money(cents: 12000)))
-        }
-        return results
-    }
+    // Household savings require service-level data shared by joined members. An invitation alone is not evidence of overlap.
+    var householdInsights: [HouseholdInsight] { [] }
     var householdAvailableSavings: Money { householdInsights.reduce(Money(cents: 0)) { $0 + $1.annualSavings } }
 
     func add(_ subscription: Subscription) async throws {
@@ -172,19 +179,21 @@ final class AppStore {
     private func bootstrap() async {
         do {
             var saved = try await repository.fetchAll()
-            if saved.isEmpty {
-                saved = DemoData.subscriptions
-                try await repository.replaceAll(saved)
-            }
+            #if DEBUG
+            let legacyDemoIDs = Set([
+                "10000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000002",
+                "10000000-0000-0000-0000-000000000003", "10000000-0000-0000-0000-000000000004",
+                "10000000-0000-0000-0000-000000000005", "10000000-0000-0000-0000-000000000006"
+            ].compactMap(UUID.init(uuidString:)))
+            for item in saved where legacyDemoIDs.contains(item.id) { try await repository.delete(id: item.id) }
+            saved = try await repository.fetchAll()
+            let legacyMemberID = UUID(uuidString: "20000000-0000-0000-0000-000000000001")!
+            try await repository.deleteHouseholdMember(id: legacyMemberID)
+            #endif
             subscriptions = saved
             savingsEvents = try await repository.fetchSavingsEvents()
             opportunities = optimizationEngine.recommendations(for: saved)
-            var members = try await repository.fetchHouseholdMembers()
-            if members.isEmpty {
-                members = DemoData.householdMembers
-                for member in members { try await repository.upsertHouseholdMember(member) }
-            }
-            householdMembers = members
+            householdMembers = try await repository.fetchHouseholdMembers()
         } catch {
             errorMessage = "Subwise could not open its private local database."
         }

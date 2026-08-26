@@ -1,15 +1,15 @@
 import Foundation
 
-protocol OptimizationEngine: Sendable {
+nonisolated protocol OptimizationEngine: Sendable {
     func recommendations(for subscriptions: [Subscription]) -> [SavingsOpportunity]
 }
 
-struct LocalOptimizationEngine: OptimizationEngine {
+nonisolated struct LocalOptimizationEngine: OptimizationEngine {
     func recommendations(for subscriptions: [Subscription]) -> [SavingsOpportunity] {
         var results = subscriptions.compactMap(lowValueRecommendation)
         let grouped = Dictionary(grouping: subscriptions, by: \.category)
         for (category, matches) in grouped where matches.count > 1 {
-            guard let candidate = matches.min(by: { $0.valueScore < $1.valueScore }), candidate.valueScore < 60 else { continue }
+            guard let candidate = matches.filter({ !$0.isImportant }).min(by: { $0.valueScore < $1.valueScore }), candidate.valueScore < 60 else { continue }
             guard !results.contains(where: { $0.merchant == candidate.name }) else { continue }
             results.append(SavingsOpportunity(id: stableID("duplicate:\(category.rawValue)"), title: "Review overlapping \(category.rawValue.lowercased())", merchant: candidate.name, explanation: "You have \(matches.count) services in this category. Compare them before removing one.", annualSavings: candidate.annualCost, monthlySavings: candidate.monthlyCost, kind: .duplicate, confidence: "Medium", effortMinutes: 5))
         }
@@ -17,8 +17,13 @@ struct LocalOptimizationEngine: OptimizationEngine {
     }
 
     private func lowValueRecommendation(_ item: Subscription) -> SavingsOpportunity? {
-        guard item.valueScore < 40 else { return nil }
-        return SavingsOpportunity(id: stableID("cancel:\(item.id)"), title: "Review \(item.name)", merchant: item.name, explanation: "Its Value Score is \(item.valueScore)/100. Confirm your usage before changing the plan.", annualSavings: item.annualCost, monthlySavings: item.monthlyCost, kind: .highImpact, confidence: item.valueScore < 25 ? "High" : "Medium", effortMinutes: 3)
+        guard !item.isImportant else { return nil }
+        let hasUserReviewSignal = item.status == .review || item.status == .trial || item.usage == .low
+        guard hasUserReviewSignal, item.valueScore < 50 else { return nil }
+        let explanation = item.status == .trial
+            ? "The trial will become a paid \(item.monthlyCost.formatted) subscription. Confirm the renewal date and whether you want to keep it."
+            : "You reported \(item.usage.rawValue.lowercased()) usage and its calculated Value Score is \(item.valueScore)/100."
+        return SavingsOpportunity(id: stableID("cancel:\(item.id)"), title: item.status == .trial ? "Review \(item.name) trial" : "Review \(item.name)", merchant: item.name, explanation: explanation, annualSavings: item.annualCost, monthlySavings: item.monthlyCost, kind: .highImpact, confidence: item.usage == .low ? "High" : "Medium", effortMinutes: 3)
     }
 
     private func stableID(_ text: String) -> UUID {

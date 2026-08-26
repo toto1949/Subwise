@@ -9,7 +9,7 @@ struct ProfileSettingsView: View {
                 TextField("Display name", text: $displayName).textContentType(.name)
                 TextField("Email", text: $email).textContentType(.emailAddress).textInputAutocapitalization(.never).keyboardType(.emailAddress)
             }
-            Section { Text("These details stay on this device in internal development mode.").font(.footnote).foregroundStyle(.secondary) }
+            Section { Text("These profile details are stored locally on this device.").font(.footnote).foregroundStyle(.secondary) }
         }.navigationTitle("Profile")
     }
 }
@@ -64,18 +64,14 @@ struct SavingsGoalSettingsView: View {
 }
 
 struct ConnectedInstitutionsView: View {
-    @AppStorage("developmentInstitutionConnected") private var isConnected = false
     var body: some View {
         List {
             Section {
-                if isConnected {
-                    HStack { Image(systemName: "building.columns.fill").foregroundStyle(Theme.green); VStack(alignment: .leading) { Text("Development Bank").font(.headline); Text("Sandbox connection • no credentials stored").font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.green) }
-                } else {
-                    ContentUnavailableView("No institution connected", systemImage: "building.columns", description: Text("Manual entry and screenshot import remain available."))
-                }
+                ContentUnavailableView("No institution connected", systemImage: "building.columns", description: Text("Manual entry and screenshot import use real on-device data. Automatic bank sync becomes available after a provider is configured."))
             }
             Section {
-                Button(isConnected ? "Disconnect development bank" : "Connect development bank", systemImage: isConnected ? "xmark.circle" : "plus.circle") { isConnected.toggle() }
+                Label("No simulated bank connection is shown", systemImage: "checkmark.shield")
+                    .foregroundStyle(.secondary)
             }
         }.navigationTitle("Institutions")
     }
@@ -91,7 +87,7 @@ struct AIProcessingSettingsView: View {
                 Label("No bank credentials or account numbers", systemImage: "lock.shield")
                 Label("OpenAI key remains on the server", systemImage: "server.rack")
             }
-            Section { Text("Debug builds can use the deterministic on-device development agent when a server credential is unavailable.").font(.footnote).foregroundStyle(.secondary) }
+            Section { Text("When enabled, questions and structured subscription summaries are sent to the authenticated Subwise API. There is no canned on-device chatbot fallback.").font(.footnote).foregroundStyle(.secondary) }
         }.navigationTitle("AI Processing")
     }
 }

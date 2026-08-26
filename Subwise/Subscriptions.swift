@@ -60,7 +60,7 @@ struct SubscriptionDetailView: View {
     init(subscription: Subscription) { _subscription = State(initialValue: subscription) }
     var body: some View {
         ScrollView { VStack(spacing: 18) {
-            VStack(spacing: 10) { ServiceIcon(symbol: subscription.symbol, colorName: subscription.colorName, size: 72); Text(subscription.name).font(.title.bold()); Text(subscription.plan).foregroundStyle(.secondary); Text("\(subscription.monthlyCost.formatted)/month").font(.title2.bold()) }.frame(maxWidth: .infinity).padding(.vertical)
+            VStack(spacing: 10) { ServiceIcon(symbol: subscription.symbol, colorName: subscription.colorName, serviceName: subscription.name, size: 72); Text(subscription.name).font(.title.bold()); Text(subscription.plan).foregroundStyle(.secondary); Text("\(subscription.monthlyCost.formatted)/month").font(.title2.bold()) }.frame(maxWidth: .infinity).padding(.vertical)
             HStack { MetricCard(value: subscription.annualCost.formatted, label: "annual cost"); MetricCard(value: "\(subscription.valueScore)/100", label: subscription.scoreLabel) }
             VStack(alignment: .leading, spacing: 14) {
                 Text("Why this score").font(.headline)
@@ -80,7 +80,8 @@ struct SubscriptionDetailView: View {
 
     private func keep() {
         subscription.status = .active
-        subscription.valueScore = max(subscription.valueScore, 70)
+        subscription.isImportant = true
+        subscription.valueScore = SubscriptionValueScore.calculate(monthlyCost: subscription.monthlyCost, usage: subscription.usage, isImportant: true, isTrial: false)
         Task {
             do { try await store.update(subscription); statusMessage = "Saved as important to keep." }
             catch { statusMessage = "The preference could not be saved." }
@@ -105,7 +106,14 @@ private struct EditSubscriptionView: View {
         NavigationStack {
             Form {
                 Section("Service") { TextField("Name", text: $value.name); TextField("Plan", text: $value.plan); TextField("Monthly price", text: $price).keyboardType(.decimalPad) }
-                Section("Classification") { Picker("Category", selection: $value.category) { ForEach(SubscriptionCategory.allCases) { Text($0.rawValue).tag($0) } }; Picker("Status", selection: $value.status) { Text("Active").tag(SubscriptionStatus.active); Text("Trial").tag(SubscriptionStatus.trial); Text("Needs review").tag(SubscriptionStatus.review) }; Stepper("Value Score: \(value.valueScore)", value: $value.valueScore, in: 0...100, step: 5) }
+                Section("Classification") {
+                    Picker("Category", selection: $value.category) { ForEach(SubscriptionCategory.allCases) { Text($0.rawValue).tag($0) } }
+                    Picker("Usage", selection: $value.usage) { ForEach(SubscriptionUsage.allCases) { Text($0.rawValue).tag($0) } }
+                    Picker("Status", selection: $value.status) { Text("Active").tag(SubscriptionStatus.active); Text("Trial").tag(SubscriptionStatus.trial); Text("Needs review").tag(SubscriptionStatus.review) }
+                    Toggle("Important to keep", isOn: $value.isImportant)
+                    LabeledContent("Calculated Value Score", value: "\(calculatedScore)/100")
+                    Text("The score is calculated from the price, usage you report, importance, and trial status.").font(.footnote).foregroundStyle(.secondary)
+                }
             }
             .navigationTitle("Edit Subscription").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -118,7 +126,14 @@ private struct EditSubscriptionView: View {
     private func save() {
         guard let decimal = Decimal(string: price) else { return }
         value.monthlyCost = Money(cents: NSDecimalNumber(decimal: decimal * 100).intValue)
+        value.valueScore = calculatedScore
         Task { try? await store.update(value); onSaved(value); dismiss() }
+    }
+
+    private var calculatedScore: Int {
+        let decimal = Decimal(string: price) ?? 0
+        let cost = Money(cents: NSDecimalNumber(decimal: decimal * 100).intValue)
+        return SubscriptionValueScore.calculate(monthlyCost: cost, usage: value.usage, isImportant: value.isImportant, isTrial: value.status == .trial)
     }
 }
 
@@ -128,14 +143,18 @@ struct AddSubscriptionView: View {
     @State private var name = ""
     @State private var price = ""
     @State private var category: SubscriptionCategory = .other
+    @State private var usage: SubscriptionUsage = .unknown
+    @State private var isImportant = false
     var body: some View {
-        NavigationStack { Form { Section("Service") { TextField("Subscription name", text: $name); TextField("Monthly price", text: $price).keyboardType(.decimalPad); Picker("Category", selection: $category) { ForEach(SubscriptionCategory.allCases) { Text($0.rawValue).tag($0) } } }; Section { Label("You can add reminders and plan details after saving.", systemImage: "bell.badge").font(.footnote).foregroundStyle(.secondary) } }
+        NavigationStack { Form { Section("Service") { TextField("Subscription name", text: $name); TextField("Monthly price", text: $price).keyboardType(.decimalPad); Picker("Category", selection: $category) { ForEach(SubscriptionCategory.allCases) { Text($0.rawValue).tag($0) } }; Picker("Usage", selection: $usage) { ForEach(SubscriptionUsage.allCases) { Text($0.rawValue).tag($0) } }; Toggle("Important to keep", isOn: $isImportant) }; Section { Label("Usage and importance create a calculated Value Score and evidence-based suggestions.", systemImage: "function").font(.footnote).foregroundStyle(.secondary) } }
             .navigationTitle("New Subscription").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) }; ToolbarItem(placement: .confirmationAction) { Button("Save", systemImage: "checkmark") { save() }.labelStyle(.iconOnly).disabled(name.isEmpty || Decimal(string: price) == nil) } }
         }
     }
     private func save() {
         guard let decimal = Decimal(string: price) else { return }
-        let subscription = Subscription(id: UUID(), name: name, plan: "Monthly", monthlyCost: Money(cents: NSDecimalNumber(decimal: decimal * 100).intValue), renewalText: "Renewal date needed", category: category, status: .active, valueScore: 50, symbol: "square.grid.2x2.fill", colorName: "teal")
+        let cost = Money(cents: NSDecimalNumber(decimal: decimal * 100).intValue)
+        let score = SubscriptionValueScore.calculate(monthlyCost: cost, usage: usage, isImportant: isImportant, isTrial: false)
+        let subscription = Subscription(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines), plan: "Monthly", monthlyCost: cost, renewalText: "Renewal date needed", category: category, status: .active, valueScore: score, usage: usage, isImportant: isImportant, symbol: "square.grid.2x2.fill", colorName: "teal")
         Task {
             try? await store.add(subscription)
             dismiss()

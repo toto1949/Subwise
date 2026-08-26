@@ -8,42 +8,72 @@ nonisolated struct AgentReply: Decodable, Sendable {
     let disclaimer: String
 }
 
-nonisolated private struct AgentRequest: Encodable { let message: String; let conversationId: UUID? }
+nonisolated enum LocalSavingsAgent {
+    static func reply(message: String, conversationId: UUID?, monthlySavingsGoalCents: Int, subscriptions: [Subscription]) -> AgentReply {
+        let recommendations = LocalOptimizationEngine().recommendations(for: subscriptions)
+        let query = message.lowercased()
+        let requested = recommendations.filter { query.contains($0.merchant.lowercased()) }
+        let selected = Array((requested.isEmpty ? recommendations : requested).prefix(5))
+        let recommendedIDs = selected.compactMap { opportunity in
+            subscriptions.first(where: { $0.name == opportunity.merchant })?.id.uuidString
+        }
+        let monthlySavings = selected.reduce(0) { $0 + $1.monthlySavings.cents }
+        let answer: String
+        if subscriptions.isEmpty {
+            answer = "Add a subscription first and I can help you review its cost and value."
+        } else if selected.isEmpty {
+            answer = "I do not see a clear review opportunity from your saved usage and priorities. Keep tracking renewals and update a subscription when its value changes."
+        } else {
+            let names = selected.map(\.merchant).joined(separator: ", ")
+            let goal = Money(cents: monthlySavingsGoalCents).formatted
+            answer = "Start by reviewing \(names). \(selected[0].explanation) Your current goal is \(goal) per month, and this review could reduce recurring spend by up to \(Money(cents: monthlySavings).formatted) per month."
+        }
+        return AgentReply(
+            conversationId: conversationId ?? UUID(),
+            answer: answer,
+            estimatedMonthlySavingsCents: monthlySavings > 0 ? monthlySavings : nil,
+            recommendedSubscriptionIds: recommendedIDs,
+            disclaimer: "On-device guidance uses only your saved subscription details. Verify plan terms and cancellation results before counting savings."
+        )
+    }
+}
+
+nonisolated private struct AgentSubscriptionContext: Encodable {
+    let id: UUID
+    let merchant: String
+    let monthlyEquivalentCents: Int
+    let usage: String
+    let valueScore: Int
+    let userPriority: String
+    let category: String
+    let status: String
+}
+
+nonisolated private struct AgentRequest: Encodable {
+    let message: String
+    let conversationId: UUID?
+    let monthlySavingsGoalCents: Int
+    let subscriptions: [AgentSubscriptionContext]
+}
 
 actor SavingsAgentService {
     static let shared = SavingsAgentService()
     private let api: APIClient
-    private let vault: KeychainVault
-    init(api: APIClient = .shared, vault: KeychainVault = .shared) { self.api = api; self.vault = vault }
-    func send(message: String, conversationId: UUID?, subscriptions: [Subscription]) async throws -> AgentReply {
-        #if DEBUG
-        if try await vault.value(for: "accessToken") == nil { return developmentReply(message: message, conversationId: conversationId, subscriptions: subscriptions) }
-        #endif
-        let body = try await api.encode(AgentRequest(message: message, conversationId: conversationId))
-        do { return try await api.send(Endpoint<AgentReply>(path: "agent/messages", method: .post, body: body, idempotencyKey: UUID().uuidString)) }
-        catch {
-            #if DEBUG
-            return developmentReply(message: message, conversationId: conversationId, subscriptions: subscriptions)
-            #else
-            throw error
-            #endif
+    init(api: APIClient = .shared) { self.api = api }
+    func send(message: String, conversationId: UUID?, monthlySavingsGoalCents: Int, subscriptions: [Subscription]) async throws -> AgentReply {
+        let context = subscriptions.map {
+            AgentSubscriptionContext(
+                id: $0.id,
+                merchant: $0.name,
+                monthlyEquivalentCents: $0.monthlyCost.cents,
+                usage: $0.usage.rawValue.lowercased().replacingOccurrences(of: " ", with: "_"),
+                valueScore: $0.valueScore,
+                userPriority: $0.isImportant ? "keep" : "normal",
+                category: $0.category.rawValue,
+                status: $0.status.rawValue
+            )
         }
-    }
-
-    private func developmentReply(message: String, conversationId: UUID?, subscriptions: [Subscription]) -> AgentReply {
-        let review = subscriptions.filter { $0.status == .review || $0.valueScore < 50 }.sorted { $0.monthlyCost.cents > $1.monthlyCost.cents }
-        let candidates = Array(review.prefix(3))
-        let savings = candidates.reduce(0) { $0 + $1.monthlyCost.cents }
-        let names = candidates.map(\.name)
-        let lower = message.lowercased()
-        let answer: String
-        if lower.contains("renew") {
-            answer = subscriptions.isEmpty ? "Add a subscription and I’ll organize its renewal details." : subscriptions.prefix(3).map { "\($0.name): \($0.renewalText)" }.joined(separator: "\n")
-        } else if candidates.isEmpty {
-            answer = "Your current subscriptions look healthy. Add usage details or flag a service for review to get a more targeted plan."
-        } else {
-            answer = "Start by reviewing \(names.joined(separator: ", ")). Together they represent up to \(Money(cents: savings).formatted) per month. Keep anything essential and use the guided flow before making a change."
-        }
-        return AgentReply(conversationId: conversationId ?? UUID(), answer: answer, estimatedMonthlySavingsCents: savings, recommendedSubscriptionIds: candidates.map { $0.id.uuidString }, disclaimer: "Internal development analysis based only on the subscriptions saved on this device. Savings are estimates.")
+        let body = try await api.encode(AgentRequest(message: message, conversationId: conversationId, monthlySavingsGoalCents: monthlySavingsGoalCents, subscriptions: context))
+        return try await api.send(Endpoint<AgentReply>(path: "agent/messages", method: .post, body: body, idempotencyKey: UUID().uuidString))
     }
 }

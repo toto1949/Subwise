@@ -11,6 +11,7 @@ protocol SubscriptionRepository: AnyObject {
     func saveSavingsEvent(_ event: SavingsEvent) async throws
     func fetchHouseholdMembers() async throws -> [HouseholdMember]
     func upsertHouseholdMember(_ member: HouseholdMember) async throws
+    func deleteHouseholdMember(id: UUID) async throws
 }
 
 @Model
@@ -62,6 +63,8 @@ final class StoredSubscription {
     var categoryRaw: String
     var statusRaw: String
     var valueScore: Int
+    var usageRaw: String = SubscriptionUsage.unknown.rawValue
+    var isImportant: Bool = false
     var symbol: String
     var colorName: String
     var updatedAt: Date
@@ -69,12 +72,14 @@ final class StoredSubscription {
     init(_ value: Subscription) {
         id = value.id; name = value.name; plan = value.plan; monthlyCents = value.monthlyCost.cents
         renewalText = value.renewalText; categoryRaw = value.category.rawValue; statusRaw = value.status.rawValue
-        valueScore = value.valueScore; symbol = value.symbol; colorName = value.colorName; updatedAt = .now
+        valueScore = value.valueScore; usageRaw = value.usage.rawValue; isImportant = value.isImportant
+        symbol = value.symbol; colorName = value.colorName; updatedAt = .now
     }
 
     func update(from value: Subscription) {
         name = value.name; plan = value.plan; monthlyCents = value.monthlyCost.cents; renewalText = value.renewalText
         categoryRaw = value.category.rawValue; statusRaw = value.status.rawValue; valueScore = value.valueScore
+        usageRaw = value.usage.rawValue; isImportant = value.isImportant
         symbol = value.symbol; colorName = value.colorName; updatedAt = .now
     }
 
@@ -82,7 +87,8 @@ final class StoredSubscription {
         Subscription(id: id, name: name, plan: plan, monthlyCost: Money(cents: monthlyCents), renewalText: renewalText,
                      category: SubscriptionCategory(rawValue: categoryRaw) ?? .other,
                      status: SubscriptionStatus(rawValue: statusRaw) ?? .review,
-                     valueScore: valueScore, symbol: symbol, colorName: colorName)
+                     valueScore: valueScore, usage: SubscriptionUsage(rawValue: usageRaw) ?? .unknown,
+                     isImportant: isImportant, symbol: symbol, colorName: colorName)
     }
 }
 
@@ -143,6 +149,12 @@ final class SwiftDataSubscriptionRepository: SubscriptionRepository {
         descriptor.fetchLimit = 1
         if let existing = try context.fetch(descriptor).first { existing.update(from: member) }
         else { context.insert(StoredHouseholdMember(member)) }
+        try context.save()
+    }
+
+    func deleteHouseholdMember(id: UUID) async throws {
+        let identifier = id
+        try context.delete(model: StoredHouseholdMember.self, where: #Predicate { $0.id == identifier })
         try context.save()
     }
 }

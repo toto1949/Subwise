@@ -5,6 +5,7 @@ enum Theme {
     static let mint = Color("BrandMint")
     static let ink = Color("BrandInk")
     static let warm = Color("BrandWarm")
+    static let sky = Color("BrandSky")
 }
 
 extension View {
@@ -16,18 +17,79 @@ extension View {
     }
 
     func premiumScreenBackground() -> some View { background(Color(.systemGroupedBackground).ignoresSafeArea()) }
+
+    func analyticsScreenBackground() -> some View {
+        background {
+            LinearGradient(
+                colors: [Theme.sky.opacity(0.22), Color(.systemGroupedBackground), Color(.systemGroupedBackground)],
+                startPoint: .top,
+                endPoint: .center
+            )
+            .ignoresSafeArea()
+        }
+    }
 }
 
 struct ServiceIcon: View {
     let symbol: String
     let colorName: String
+    var serviceName: String? = nil
     var size: CGFloat = 44
     private var color: Color {
         switch colorName { case "blue": .blue; case "green": Theme.green; case "orange": .orange; case "purple": .purple; case "pink": .pink; case "indigo": .indigo; default: .teal }
     }
     var body: some View {
+        ZStack {
+            Circle().fill(color.opacity(0.12))
+            if let logoURL = ServiceBrand.logoURL(for: serviceName) {
+                AsyncImage(url: logoURL) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().scaledToFit().padding(size * 0.2)
+                    } else {
+                        fallback
+                    }
+                }
+            } else {
+                fallback
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private var fallback: some View {
         Image(systemName: symbol).font(.system(size: size * 0.38, weight: .semibold)).foregroundStyle(color)
-            .frame(width: size, height: size).background(color.opacity(0.12), in: Circle()).accessibilityHidden(true)
+    }
+}
+
+enum ServiceBrand {
+    private static let domains: [(matches: [String], domain: String)] = [
+        (["spotify"], "spotify.com"),
+        (["netflix"], "netflix.com"),
+        (["youtube"], "youtube.com"),
+        (["apple music", "itunes"], "music.apple.com"),
+        (["icloud"], "icloud.com"),
+        (["amazon", "prime video"], "amazon.com"),
+        (["microsoft", "office 365", "microsoft 365"], "microsoft.com"),
+        (["adobe"], "adobe.com"),
+        (["canva"], "canva.com"),
+        (["disney"], "disneyplus.com"),
+        (["hulu"], "hulu.com"),
+        (["paramount"], "paramountplus.com"),
+        (["peacock"], "peacocktv.com"),
+        (["max", "hbo"], "max.com"),
+        (["audible"], "audible.com"),
+        (["headspace"], "headspace.com"),
+        (["duolingo"], "duolingo.com"),
+        (["grammarly"], "grammarly.com"),
+        (["chatgpt", "openai"], "openai.com")
+    ]
+
+    static func logoURL(for name: String?) -> URL? {
+        guard let name else { return nil }
+        let normalized = name.lowercased()
+        guard let domain = domains.first(where: { $0.matches.contains { normalized.contains($0) } })?.domain else { return nil }
+        return URL(string: "https://www.google.com/s2/favicons?domain=\(domain)&sz=128")
     }
 }
 

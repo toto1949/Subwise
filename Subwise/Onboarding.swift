@@ -35,7 +35,13 @@ private struct OnboardingHeader: View {
 private struct ValueIntro: View {
     var body: some View { ScrollView { VStack(alignment: .leading, spacing: 32) {
         OnboardingHeader(eyebrow: "Subwise", title: "Know what your subscriptions really cost.", detail: "See every recurring charge, find waste, and get a clear plan to save more each month.", symbol: "chart.line.uptrend.xyaxis")
-        VStack(alignment: .leading, spacing: 8) { Text("YOUR MONEY SNAPSHOT").font(.caption.bold()).foregroundStyle(Theme.green); Text("$2,864").font(.system(.largeTitle, design: .rounded, weight: .bold)); Text("estimated yearly subscriptions").foregroundStyle(.secondary); Divider(); HStack { Text("Potential savings"); Spacer(); Text("$816/year").bold().foregroundStyle(Theme.green) } }.padding(22).background(Theme.mint, in: RoundedRectangle(cornerRadius: 22))
+        VStack(alignment: .leading, spacing: 12) {
+            Text("YOUR MONEY SNAPSHOT").font(.caption.bold()).foregroundStyle(Theme.green)
+            Text("Calculated from your subscriptions").font(.title2.bold())
+            Text("Your annual cost and potential savings will appear after you add or import real subscription details.").foregroundStyle(.secondary)
+            Divider()
+            Label("No sample totals or bank credentials required", systemImage: "checkmark.seal.fill").font(.subheadline.bold()).foregroundStyle(Theme.green)
+        }.padding(22).background(Theme.mint, in: RoundedRectangle(cornerRadius: 22))
         Label("Private by design • No bank password stored", systemImage: "lock.shield.fill").font(.footnote).foregroundStyle(.secondary)
     }.padding(24) } }
 }
