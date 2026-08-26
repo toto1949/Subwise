@@ -8,6 +8,7 @@ nonisolated struct Endpoint<Response: Decodable & Sendable>: Sendable {
     var body: Data?
     var requiresAuthentication = true
     var idempotencyKey: String?
+    var timeoutInterval: TimeInterval = 20
 }
 
 nonisolated struct ErrorEnvelope: Decodable { nonisolated struct Detail: Decodable { let code: String; let message: String; let requestId: String }; let error: Detail }
@@ -41,7 +42,7 @@ actor APIClient {
 
     private func perform<Response>(_ endpoint: Endpoint<Response>, allowAuthenticationRefresh: Bool, allowNetworkRetry: Bool) async throws -> Response where Response: Decodable & Sendable {
         var request = URLRequest(url: baseURL.appending(path: endpoint.path))
-        request.httpMethod = endpoint.method.rawValue; request.httpBody = endpoint.body; request.timeoutInterval = 20
+        request.httpMethod = endpoint.method.rawValue; request.httpBody = endpoint.body; request.timeoutInterval = endpoint.timeoutInterval
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if endpoint.body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let key = endpoint.idempotencyKey { request.setValue(key, forHTTPHeaderField: "Idempotency-Key") }
@@ -82,6 +83,10 @@ nonisolated private struct RefreshRequest: Encodable { let refreshToken: String 
 extension JSONEncoder { nonisolated static var subwise: JSONEncoder { let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; return encoder } }
 
 nonisolated enum AppConfiguration {
+    static func requestTimeout(for path: String) -> TimeInterval {
+        if path.contains("agent/messages") { return 60 }
+        return 20
+    }
     static var apiBaseURL: URL {
         // Allow SUBWISE_API_BASE_URL override via UserDefaults for on-device debugging without rebuilding
         // e.g. defaults write com.toto.Subwise SUBWISE_API_BASE_URL_OVERRIDE -string "https://subwise-api-.../api/v1"

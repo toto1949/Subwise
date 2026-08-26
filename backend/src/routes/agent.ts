@@ -40,19 +40,27 @@ const plugin: FastifyPluginAsync = async (app) => {
     const existingConversation = conversationId ? await app.db.aIConversation.findFirst({ where: { id: conversationId, userId: request.userId }, include: { messages: { orderBy: { createdAt: "desc" }, take: 20 } } }) : null;
     if (conversationId && !existingConversation) throw new AppError("CONVERSATION_NOT_FOUND", "Conversation not found", 404);
     const history = existingConversation?.messages.slice().reverse().map((item) => ({ role: item.role, content: item.content })) ?? [];
-    const client = new OpenAI({ apiKey: app.config.OPENAI_API_KEY });
-    const response = await client.responses.parse({
-      model: app.config.OPENAI_MODEL,
-      instructions: "You are Subwise's advisory Savings Agent. Use only the supplied structured subscriptions and conversation history. Respect userPriority=keep and allowedActions. Recommend only subscription IDs present in the supplied data. Do not invent prices, discounts, eligibility, renewal dates, actions, or completed savings. Explain uncertainty, never guarantee savings, and never request credentials or sensitive financial data. Keep the response concise and actionable.",
-      input: JSON.stringify({
-        conversationHistory: history,
-        userMessage: message,
-        monthlySavingsGoalCents,
-        currentMonthlySpendCents: context.reduce((sum, item) => sum + item.monthlyEquivalentCents, 0),
-        subscriptions: context
-      }),
-      text: { format: zodTextFormat(AgentPlan, "savings_agent_plan") }
-    });
+    const client = new OpenAI({ apiKey: app.config.OPENAI_API_KEY, timeout: 25_000, maxRetries: 1 });
+    let response;
+    try {
+      response = await client.responses.parse({
+        model: app.config.OPENAI_MODEL,
+        instructions: "You are Subwise's advisory Savings Agent. Use only the supplied structured subscriptions and conversation history. Respect userPriority=keep and allowedActions. Recommend only subscription IDs present in the supplied data. Do not invent prices, discounts, eligibility, renewal dates, actions, or completed savings. Explain uncertainty, never guarantee savings, and never request credentials or sensitive financial data. Keep the response concise and actionable.",
+        input: JSON.stringify({
+          conversationHistory: history,
+          userMessage: message,
+          monthlySavingsGoalCents,
+          currentMonthlySpendCents: context.reduce((sum, item) => sum + item.monthlyEquivalentCents, 0),
+          subscriptions: context
+        }),
+        text: { format: zodTextFormat(AgentPlan, "savings_agent_plan") }
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Surface OpenAI failures as 502/504 instead of letting Vercel hang until client timeout (logs showed 18-30s)
+      if (msg.toLowerCase().includes("timeout")) throw new AppError("AI_TIMEOUT", "Savings Agent timed out waiting for AI. Try again.", 504);
+      throw new AppError("AI_UPSTREAM_ERROR", msg.slice(0, 300), 502);
+    }
     if (!response.output_parsed) throw new AppError("AI_INVALID_RESPONSE", "The Savings Agent returned an invalid response", 502);
 
     const allowedIds = new Set(context.map((item) => item.id));

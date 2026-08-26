@@ -74,6 +74,7 @@ actor SavingsAgentService {
             )
         }
         let body = try await api.encode(AgentRequest(message: message, conversationId: conversationId, monthlySavingsGoalCents: monthlySavingsGoalCents, subscriptions: context))
-        return try await api.send(Endpoint<AgentReply>(path: "agent/messages", method: .post, body: body, idempotencyKey: UUID().uuidString))
+        // OpenAI Responses API via Vercel takes 10-30s (logs: 18.2s, 30.1s) — iOS default 20s times out with -1001
+        return try await api.send(Endpoint<AgentReply>(path: "agent/messages", method: .post, body: body, idempotencyKey: UUID().uuidString, timeoutInterval: 60))
     }
 }

@@ -7,7 +7,7 @@ const schema = z.object({
   ACCESS_TOKEN_SECRET: z.string().min(32),
   APPLE_CLIENT_ID: z.string().min(3),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_MODEL: z.string().default("gpt-5-mini"),
+  OPENAI_MODEL: z.string().default("gpt-4o-mini"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info")
 });
 

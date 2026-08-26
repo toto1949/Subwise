@@ -128,7 +128,6 @@ struct AgentView: View {
                 }
             } }
             .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
             HStack(spacing: 12) {
                 TextField(canUseAgent ? "Ask about your subscriptions" : agentStatus, text: $query, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -160,8 +159,11 @@ struct AgentView: View {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, !isSending, canUseAgent else { return }
         messages.append(.init(isUser: true, text: clean)); query = ""; isSending = true
-        isComposerFocused = true
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        // Defer focus to next runloop to avoid UIKit warning:
+        // +[UIInputViewSetPlacementInvisible placementWithPlacement:]: Should not be called with an invisible placement
+        // happens when @FocusState is toggled synchronously during the TextField's layout pass
+        DispatchQueue.main.async { isComposerFocused = true }
         Task {
             do {
                 let reply: AgentReply
@@ -185,10 +187,13 @@ struct AgentView: View {
                         // Also surface 401/404/502 etc. verbatim so Vercel misconfig is diagnosable on-device
                         detail = "\(code): \(message)"
                     case let .transport(underlying):
-                        // Common on DEBUG+simulator when http://127.0.0.1:3000 is not running; see AppConfiguration.apiBaseURL
                         let ns = underlying as NSError
                         if ns.domain == NSURLErrorDomain {
-                            detail = "No connection to \(AppConfiguration.apiBaseURL.absoluteString) (\(ns.code): \(underlying.localizedDescription)). Run backend locally or use a device/Release build for Vercel."
+                            if ns.code == NSURLErrorTimedOut {
+                                detail = "Timed out after \(Int(AppConfiguration.requestTimeout(for: "agent/messages")))s to \(AppConfiguration.apiBaseURL.absoluteString) — server took >\(Int(AppConfiguration.requestTimeout(for: "agent/messages")))s (Vercel logs: 18-30s for OpenAI). Retrying may succeed when function is warm."
+                            } else {
+                                detail = "No connection to \(AppConfiguration.apiBaseURL.absoluteString) (\(ns.code): \(underlying.localizedDescription)). Run backend locally or use a device/Release build for Vercel."
+                            }
                         } else {
                             detail = underlying.localizedDescription
                         }
