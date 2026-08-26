@@ -83,9 +83,23 @@ extension JSONEncoder { nonisolated static var subwise: JSONEncoder { let encode
 
 nonisolated enum AppConfiguration {
     static var apiBaseURL: URL {
-        if let value = Bundle.main.object(forInfoDictionaryKey: "SUBWISE_API_BASE_URL") as? String, let url = URL(string: value) { return url }
+        if let value = Bundle.main.object(forInfoDictionaryKey: "SUBWISE_API_BASE_URL") as? String, let url = URL(string: value), !value.isEmpty {
+            #if DEBUG
+            #if targetEnvironment(simulator)
+            return url
+            #else
+            if value != "http://127.0.0.1:3000/api/v1" { return url }
+            #endif
+            #else
+            return url
+            #endif
+        }
         #if DEBUG
+        #if targetEnvironment(simulator)
         return URL(string: "http://127.0.0.1:3000/api/v1")!
+        #else
+        return URL(string: "https://subwise-api-taoufiqmoutaouakil-gmailcoms-projects.vercel.app/api/v1")!
+        #endif
         #else
         preconditionFailure("SUBWISE_API_BASE_URL must be configured for production")
         #endif

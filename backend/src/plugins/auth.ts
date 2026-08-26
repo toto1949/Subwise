@@ -26,8 +26,12 @@ export default fp(async (app) => {
   });
   app.decorate("issueAccessToken", (userId) => new SignJWT({ scope: "user" }).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setIssuer("subwise-api").setAudience("subwise-ios").setIssuedAt().setExpirationTime("15m").sign(secret));
   app.decorate("verifyAppleToken", async (token) => {
-    const { payload } = await jwtVerify(token, appleKeys, { issuer: "https://appleid.apple.com", audience: app.config.APPLE_CLIENT_ID });
-    if (!payload.sub) throw new AppError("INVALID_APPLE_TOKEN", "Apple identity token is invalid", 401);
-    return { subject: payload.sub, ...(typeof payload.email === "string" ? { email: payload.email } : {}) };
+    try {
+      const { payload } = await jwtVerify(token, appleKeys, { issuer: "https://appleid.apple.com", audience: app.config.APPLE_CLIENT_ID });
+      if (typeof payload.sub !== "string") throw new Error("Missing subject");
+      return { subject: payload.sub, ...(typeof payload.email === "string" ? { email: payload.email } : {}) };
+    } catch {
+      throw new AppError("INVALID_APPLE_TOKEN", "Apple identity token is invalid or expired", 401);
+    }
   });
 });

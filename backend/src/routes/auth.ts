@@ -6,7 +6,7 @@ import { AppError } from "../lib/errors.js";
 
 const plugin: FastifyPluginAsync = async (app) => {
   app.post("/auth/apple", async (request, reply) => {
-    const body = z.object({ identityToken: z.string().min(20), authorizationCode: z.string().min(1), displayName: z.string().max(100).optional() }).parse(request.body);
+    const body = z.object({ identityToken: z.string().min(20), authorizationCode: z.string().min(1).nullish(), displayName: z.string().max(100).optional() }).parse(request.body);
     const identity = await app.verifyAppleToken(body.identityToken);
     const user = await app.db.user.upsert({ where: { appleSubject: identity.subject }, update: { ...(identity.email ? { email: identity.email } : {}), ...(body.displayName ? { displayName: body.displayName } : {}) }, create: { appleSubject: identity.subject, email: identity.email, displayName: body.displayName } });
     const refreshToken = randomBytes(48).toString("base64url");

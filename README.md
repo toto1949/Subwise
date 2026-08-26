@@ -30,7 +30,7 @@ docker-compose.yml       local PostgreSQL and API
 1. Open `Subwise.xcodeproj` in Xcode 26 or newer.
 2. Select your development team if it differs from the checked-in team. The registered App ID and target bundle identifier are `com.toto.Subwise`; the target already declares development APNs and Sign in with Apple entitlements.
 3. Run the shared `Subwise` scheme. It automatically loads `Subwise/Subwise.storekit`, which contains monthly and annual renewable products matching the app identifiers.
-4. Debug builds default to `http://127.0.0.1:3000/api/v1`. They also provide explicit internal-development sign-in, StoreKit, Savings Agent, institution, and notification paths when external providers are unavailable.
+4. Debug simulator builds default to `http://127.0.0.1:3000/api/v1`; Debug device builds use the configured deployed API so they can reach the backend from an iPhone. They also provide explicit internal-development sign-in, StoreKit, Savings Agent, institution, and notification paths when external providers are unavailable.
 5. For a staging or release backend, set `SUBWISE_API_BASE_URL` in the target's Info configuration. Release builds intentionally fail fast when it is missing.
 
 The starter dataset is inserted into SwiftData only when the private local store is empty. Subscriptions, edits, household members, preferences, savings-plan activity, and verified savings then persist and drive every tab; they are not reset from hard-coded screen models.
