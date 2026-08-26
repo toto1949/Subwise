@@ -83,6 +83,11 @@ extension JSONEncoder { nonisolated static var subwise: JSONEncoder { let encode
 
 nonisolated enum AppConfiguration {
     static var apiBaseURL: URL {
+        // Allow SUBWISE_API_BASE_URL override via UserDefaults for on-device debugging without rebuilding
+        // e.g. defaults write com.toto.Subwise SUBWISE_API_BASE_URL_OVERRIDE -string "https://subwise-api-.../api/v1"
+        if let override = UserDefaults.standard.string(forKey: "SUBWISE_API_BASE_URL_OVERRIDE"), let url = URL(string: override), !override.isEmpty {
+            return url
+        }
         if let value = Bundle.main.object(forInfoDictionaryKey: "SUBWISE_API_BASE_URL") as? String, let url = URL(string: value), !value.isEmpty {
             #if DEBUG
             #if targetEnvironment(simulator)

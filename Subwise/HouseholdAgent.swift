@@ -175,7 +175,30 @@ struct AgentView: View {
             } catch {
                 let fallback = LocalSavingsAgent.reply(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.subscriptions)
                 conversationID = fallback.conversationId
-                messages.append(.init(isUser: false, text: "The server agent is unavailable, so here is on-device guidance:\n\n\(fallback.answer)\n\n\(fallback.disclaimer)"))
+                let detail: String
+                if let apiError = error as? APIError {
+                    switch apiError {
+                    case .unauthorized:
+                        detail = "Session expired — sign in again (401 UNAUTHORIZED)"
+                    case let .server(code, message, _):
+                        // backend/src/routes/agent.ts:38 returns 503 AI_NOT_CONFIGURED when OPENAI_API_KEY missing
+                        // Also surface 401/404/502 etc. verbatim so Vercel misconfig is diagnosable on-device
+                        detail = "\(code): \(message)"
+                    case let .transport(underlying):
+                        // Common on DEBUG+simulator when http://127.0.0.1:3000 is not running; see AppConfiguration.apiBaseURL
+                        let ns = underlying as NSError
+                        if ns.domain == NSURLErrorDomain {
+                            detail = "No connection to \(AppConfiguration.apiBaseURL.absoluteString) (\(ns.code): \(underlying.localizedDescription)). Run backend locally or use a device/Release build for Vercel."
+                        } else {
+                            detail = underlying.localizedDescription
+                        }
+                    case .invalidResponse:
+                        detail = "Invalid server response"
+                    }
+                } else {
+                    detail = error.localizedDescription
+                }
+                messages.append(.init(isUser: false, text: "Server agent unavailable (\(detail)) — showing on-device guidance:\n\n\(fallback.answer)\n\n\(fallback.disclaimer)"))
             }
             isSending = false
         }
