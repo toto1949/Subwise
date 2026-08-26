@@ -90,6 +90,7 @@ struct AgentView: View {
     @State private var messages: [AgentMessage] = [.init(isUser: false, text: "Tell me your savings goal and which subscriptions matter most. I’ll use your structured subscription summary to build an advisory plan.")]
     @State private var conversationID: UUID?
     @State private var isSending = false
+    @FocusState private var isComposerFocused: Bool
     var body: some View {
         NavigationStack { VStack(spacing: 0) {
             ScrollView { LazyVStack(spacing: 14) {
@@ -126,13 +127,41 @@ struct AgentView: View {
                     }.padding()
                 }
             } }
-            HStack { TextField(canUseAgent ? "Ask about your subscriptions" : agentStatus, text: $query, axis: .vertical).textFieldStyle(.roundedBorder).disabled(!canUseAgent); if isSending { ProgressView() } else { Button { ask(query) } label: { Image(systemName: "arrow.up.circle.fill").font(.title) }.disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canUseAgent).accessibilityLabel("Send") } }.padding().background(.bar)
+            .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
+            HStack(spacing: 12) {
+                TextField(canUseAgent ? "Ask about your subscriptions" : agentStatus, text: $query, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...5)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .focused($isComposerFocused)
+                    .disabled(!canUseAgent)
+                    .onSubmit { ask(query) }
+                if isSending {
+                    ProgressView()
+                } else {
+                    Button { ask(query) } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 34))
+                            .foregroundStyle(Theme.green)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canUseAgent)
+                    .accessibilityLabel("Send message")
+                }
+            }
+            .padding()
+            .background(.bar)
         }.navigationBarHidden(true) }
     }
     private func ask(_ text: String) {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, !isSending, canUseAgent else { return }
         messages.append(.init(isUser: true, text: clean)); query = ""; isSending = true
+        isComposerFocused = true
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         Task {
             do {
                 let reply: AgentReply

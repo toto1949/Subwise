@@ -14,10 +14,27 @@ struct MainTabView: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func dashboardEntrance(_ hasAppeared: Bool, index: Int, reduceMotion: Bool) -> some View {
+        if reduceMotion {
+            self
+        } else {
+            self
+                .opacity(hasAppeared ? 1 : 0)
+                .offset(y: hasAppeared ? 0 : 18)
+                .scaleEffect(hasAppeared ? 1 : 0.98)
+                .animation(.spring(response: 0.65, dampingFraction: 0.82).delay(Double(index) * 0.055), value: hasAppeared)
+        }
+    }
+}
+
 struct HomeView: View {
     @Environment(AppStore.self) private var store
     @Binding var selection: Int
     @State private var showingProfile = false
+    @State private var hasAppeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var greeting: String {
         switch Calendar.current.component(.hour, from: .now) { case 5..<12: "Good morning"; case 12..<18: "Good afternoon"; default: "Good evening" }
     }
@@ -34,14 +51,20 @@ struct HomeView: View {
                         opportunityCount: store.opportunities.count,
                         progress: savingsRate
                     ) { selection = 2 }
+                    .dashboardEntrance(hasAppeared, index: 0, reduceMotion: reduceMotion)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                         DashboardMetric(value: store.monthlySpend.formatted, label: "Monthly spend", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+                            .dashboardEntrance(hasAppeared, index: 1, reduceMotion: reduceMotion)
                         DashboardMetric(value: store.annualSpend.compactFormatted, label: "Annual cost", systemImage: "calendar")
+                            .dashboardEntrance(hasAppeared, index: 2, reduceMotion: reduceMotion)
                         DashboardMetric(value: savingsRate.formatted(.percent.precision(.fractionLength(0))), label: "Savings rate", systemImage: "chart.line.uptrend.xyaxis")
+                            .dashboardEntrance(hasAppeared, index: 3, reduceMotion: reduceMotion)
                     }
                     if !store.subscriptions.isEmpty {
                         ProjectionChart(monthlySpend: store.monthlySpend, annualSavings: store.availableSavings)
+                            .dashboardEntrance(hasAppeared, index: 4, reduceMotion: reduceMotion)
                         MonthlySpendCard(monthlySpend: store.monthlySpend)
+                            .dashboardEntrance(hasAppeared, index: 5, reduceMotion: reduceMotion)
                     }
                     HStack { Text("Upcoming").font(.title2.bold()); Spacer(); Button("See all") { selection = 1 }.font(.subheadline.bold()) }
                     if store.isLoading { ProgressView("Loading subscriptions…").frame(maxWidth: .infinity).cardStyle() }
@@ -61,6 +84,11 @@ struct HomeView: View {
                 }.padding()
             }
             .analyticsScreenBackground()
+            .onAppear {
+                guard !hasAppeared else { return }
+                if reduceMotion { hasAppeared = true }
+                else { withAnimation(.spring(response: 0.65, dampingFraction: 0.82)) { hasAppeared = true } }
+            }
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: Subscription.self) { SubscriptionDetailView(subscription: $0) }
@@ -80,6 +108,8 @@ private struct SavingsHero: View {
     let opportunityCount: Int
     let progress: Double
     let action: () -> Void
+    @State private var animatedProgress: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 20) {
@@ -89,14 +119,15 @@ private struct SavingsHero: View {
                     Text("\(opportunityCount) \(opportunityCount == 1 ? "opportunity" : "opportunities") across your subscriptions").font(.subheadline).foregroundStyle(.white.opacity(0.72))
                 }
                 Spacer(minLength: 0)
-                Gauge(value: progress) {
+                Gauge(value: animatedProgress) {
                     Text("Savings rate")
                 } currentValueLabel: {
-                    Text(progress.formatted(.percent.precision(.fractionLength(0)))).font(.caption.bold()).foregroundStyle(.white)
+                    Text(animatedProgress.formatted(.percent.precision(.fractionLength(0)))).font(.caption.bold()).foregroundStyle(.white)
                 }
                 .gaugeStyle(.accessoryCircularCapacity)
                 .tint(Theme.sky)
                 .frame(width: 72, height: 72)
+                .shadow(color: Theme.sky.opacity(0.35), radius: 10)
             }
             Button("Review savings plan", systemImage: "arrow.right", action: action)
                 .font(.headline)
@@ -107,6 +138,15 @@ private struct SavingsHero: View {
         .padding(22)
         .background(Theme.ink, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .shadow(color: Theme.ink.opacity(0.18), radius: 18, y: 10)
+        .onAppear {
+            guard animatedProgress != progress else { return }
+            if reduceMotion { animatedProgress = progress }
+            else { withAnimation(.spring(response: 0.75, dampingFraction: 0.8)) { animatedProgress = progress } }
+        }
+        .onChange(of: progress) { _, newValue in
+            if reduceMotion { animatedProgress = newValue }
+            else { withAnimation(.spring(response: 0.6, dampingFraction: 0.84)) { animatedProgress = newValue } }
+        }
     }
 }
 
@@ -121,7 +161,11 @@ private struct DashboardMetric: View {
                 .font(.headline)
                 .foregroundStyle(Theme.sky)
                 .padding(8)
-                .background(Theme.sky.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(
+                    LinearGradient(colors: [Theme.sky.opacity(0.24), Theme.sky.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+                .shadow(color: Theme.sky.opacity(0.18), radius: 8, y: 4)
             Text(value).font(.title3.bold()).contentTransition(.numericText()).minimumScaleFactor(0.72)
             Text(label).font(.caption).foregroundStyle(.secondary)
         }
@@ -141,6 +185,8 @@ private struct ProjectionPoint: Identifiable {
 private struct ProjectionChart: View {
     let monthlySpend: Money
     let annualSavings: Money
+    @State private var chartProgress: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var points: [ProjectionPoint] {
         let calendar = Calendar.current
@@ -189,6 +235,7 @@ private struct ProjectionChart: View {
             }
             .chartXAxis { AxisMarks(values: .stride(by: .month)) { _ in AxisGridLine().foregroundStyle(.clear); AxisValueLabel(format: .dateTime.month(.abbreviated)) } }
             .chartYAxis { AxisMarks(position: .leading) { value in AxisGridLine().foregroundStyle(Color(.separator).opacity(0.35)); AxisValueLabel { if let amount = value.as(Double.self) { Text(amount, format: .currency(code: "USD").precision(.fractionLength(0))) } } } }
+            .chartPlotStyle { plot in plot.opacity(chartProgress).scaleEffect(chartProgress, anchor: .leading) }
             .frame(height: 180)
             HStack(spacing: 18) {
                 ChartLegendItem(title: "Current", color: Theme.sky)
@@ -196,6 +243,11 @@ private struct ProjectionChart: View {
             }
         }
         .cardStyle()
+        .onAppear {
+            guard chartProgress < 1 else { return }
+            if reduceMotion { chartProgress = 1 }
+            else { withAnimation(.easeOut(duration: 0.85)) { chartProgress = 1 } }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Six month spend projection")
     }
