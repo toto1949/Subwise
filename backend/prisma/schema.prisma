@@ -56,6 +56,7 @@ model User {
   notificationPreference NotificationPreference?
   eligibilityProfile EligibilityProfile?
   auditEvents AuditEvent[]
+  institutionConnections InstitutionConnection[]
 }
 
 model UserSession {
@@ -180,6 +181,9 @@ model Subscription {
   valueScore Int?
   usage String @default("unknown")
   isImportant Boolean @default(false)
+  source String @default("manual")
+  sourceExternalId String?
+  paymentMethodLabel String?
   detectedAt DateTime @default(now())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -191,6 +195,7 @@ model Subscription {
   priceObservations PriceObservation[]
   trial Trial?
   @@index([userId, status])
+  @@unique([userId, source, sourceExternalId])
 }
 
 model RecurringTransaction {
@@ -217,6 +222,7 @@ model InstitutionConnection {
   cursor String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId])
 }
 

@@ -9,6 +9,7 @@ struct OptimizeView: View {
             ScrollView { VStack(alignment: .leading, spacing: 16) {
                 HStack { Label("\(store.opportunities.count) OPPORTUNITIES", systemImage: "sparkles").font(.caption.bold()).foregroundStyle(Theme.green); Spacer(); Text("\(store.availableSavings.compactFormatted)/year").font(.headline).foregroundStyle(Theme.green) }
                 Text("Start with the highest-impact changes. You approve every action.").foregroundStyle(.secondary)
+                SavingsPlanSummary(current: store.monthlySpend, potential: Money(cents: max(0, store.monthlySpend.cents - store.availableSavings.cents / 12)), savings: store.availableSavings)
                 if !store.activeSavingsEvents.isEmpty {
                     ActivePlanCard(events: store.activeSavingsEvents)
                 }
@@ -16,24 +17,46 @@ struct OptimizeView: View {
                     ContentUnavailableView("No review suggestions yet", systemImage: "checkmark.seal", description: Text("Update usage, importance, or trial details and Subwise will recalculate your plan."))
                         .cardStyle()
                 }
-                ForEach($store.opportunities) { $opportunity in OpportunityCard(opportunity: $opportunity) }
+                ForEach(Array($store.opportunities.enumerated()), id: \.element.id) { index, $opportunity in OpportunityCard(opportunity: $opportunity, sequence: index + 1) }
                 PrimaryButton(title: "Review selected plan", systemImage: "arrow.right") { showingPlan = true }
                     .disabled(store.selectedSavings.cents == 0)
                     .padding(.top, 4)
             }.padding() }.background(Color(.systemGroupedBackground)).navigationTitle("Your savings plan")
             .navigationDestination(for: Subscription.self) { SubscriptionDetailView(subscription: $0) }
             .sheet(isPresented: $showingPlan) { SavingsPlanView() }
+            .task { await store.refreshServerRecommendations() }
         }
     }
+}
+
+private struct SavingsPlanSummary: View {
+    let current: Money, potential: Money, savings: Money
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Your SubWise Savings Plan").font(.title2.bold()).foregroundStyle(.white)
+            HStack(spacing: 10) {
+                SummaryValue(title: "Current", value: current.formatted + "/mo")
+                SummaryValue(title: "Potential", value: potential.formatted + "/mo")
+            }
+            Divider().overlay(.white.opacity(0.2))
+            HStack { VStack(alignment: .leading) { Text("Potential savings").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(savings.formatted + "/year").font(.title.bold()).foregroundStyle(Theme.mint) }; Spacer(); Image(systemName: "arrow.down.right.circle.fill").font(.largeTitle).foregroundStyle(Theme.green) }
+        }.padding(20).background(Theme.ink, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+}
+
+private struct SummaryValue: View {
+    let title: String, value: String
+    var body: some View { VStack(alignment: .leading, spacing: 4) { Text(title).font(.caption).foregroundStyle(.white.opacity(0.65)); Text(value).font(.headline).foregroundStyle(.white).minimumScaleFactor(0.7) }.frame(maxWidth: .infinity, alignment: .leading) }
 }
 
 struct OpportunityCard: View {
     @Environment(AppStore.self) private var store
     @Binding var opportunity: SavingsOpportunity
+    var sequence: Int? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack { Text(opportunity.kind.rawValue).font(.caption2.bold()).foregroundStyle(Theme.green).padding(.horizontal, 9).padding(.vertical, 5).background(Theme.mint, in: Capsule()); Spacer(); Text("\(opportunity.annualSavings.compactFormatted)/yr").font(.headline).foregroundStyle(Theme.green) }
-            Text(opportunity.title).font(.headline)
+            HStack(alignment: .firstTextBaseline) { if let sequence { Text("\(sequence)").font(.caption.bold()).foregroundStyle(.white).frame(width: 24, height: 24).background(Theme.ink, in: Circle()) }; Text(opportunity.title).font(.headline) }
             Text(opportunity.explanation).font(.subheadline).foregroundStyle(.secondary)
             if opportunity.subscriptionIDs.count > 1 {
                 HStack(spacing: -7) {

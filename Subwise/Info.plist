@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSFinancialDataUsageDescription</key>
+	<string>SubWise uses the financial accounts you choose in Wallet to find recurring subscription charges and show savings opportunities.</string>
 	<key>SUBWISE_API_BASE_URL</key>
 	<string>$(SUBWISE_API_BASE_URL)</string>
 </dict>

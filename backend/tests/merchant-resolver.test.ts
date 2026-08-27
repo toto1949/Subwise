@@ -6,4 +6,7 @@ describe("MerchantResolver", () => {
     expect(normalizeMerchant(raw).canonicalName).toBe("Netflix");
   });
   it("keeps unknown merchants for user confirmation", () => { expect(normalizeMerchant("Local App LLC").confidence).toBeLessThan(0.5); });
+  it("never guesses an ambiguous Apple bill", () => {
+    expect(normalizeMerchant("APPLE.COM/BILL 866-712-7753")).toMatchObject({ canonicalName: "Apple purchase", needsReview: true });
+  });
 });

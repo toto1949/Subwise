@@ -35,6 +35,7 @@ struct HomeView: View {
     @Binding var selection: Int
     @Binding var selectedCategory: SubscriptionCategory?
     @State private var showingProfile = false
+    @State private var showingDiscovery = false
     @State private var hasAppeared = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var greeting: String {
@@ -48,12 +49,20 @@ struct HomeView: View {
                         Text(greeting).font(.subheadline).foregroundStyle(.secondary)
                         Text("Track less.\nSave more.").font(.largeTitle.bold()).fontWidth(.expanded)
                     }
-                    SavingsHero(
-                        amount: store.availableSavings.compactFormatted,
-                        opportunityCount: store.opportunities.count,
-                        progress: savingsRate
-                    ) { selection = 2 }
-                    .dashboardEntrance(hasAppeared, index: 0, reduceMotion: reduceMotion)
+                    if store.activeSubscriptions.isEmpty && !store.isLoading {
+                        FindSubscriptionsHero { showingDiscovery = true }
+                            .dashboardEntrance(hasAppeared, index: 0, reduceMotion: reduceMotion)
+                    } else {
+                        SavingsHero(
+                            amount: store.availableSavings.compactFormatted,
+                            opportunityCount: store.opportunities.count,
+                            progress: savingsRate
+                        ) { selection = 2 }
+                        .dashboardEntrance(hasAppeared, index: 0, reduceMotion: reduceMotion)
+                    }
+                    if let trial = store.activeSubscriptions.first(where: { $0.status == .trial }) {
+                        DashboardAlertCard(subscription: trial) { selection = 1 }
+                    }
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                         DashboardMetric(value: store.monthlySpend.formatted, label: "Monthly spend", systemImage: "arrow.triangle.2.circlepath.circle.fill") { selection = 1 }
                             .dashboardEntrance(hasAppeared, index: 1, reduceMotion: reduceMotion)
@@ -62,6 +71,7 @@ struct HomeView: View {
                         DashboardMetric(value: savingsRate.formatted(.percent.precision(.fractionLength(0))), label: "Savings rate", systemImage: "chart.line.uptrend.xyaxis") { selection = 2 }
                             .dashboardEntrance(hasAppeared, index: 3, reduceMotion: reduceMotion)
                     }
+                    .redacted(reason: store.isLoading ? .placeholder : [])
                     if !store.activeSubscriptions.isEmpty {
                         CategorySpendCard(subscriptions: store.activeSubscriptions) { category in
                             selectedCategory = category
@@ -74,11 +84,11 @@ struct HomeView: View {
                             .dashboardEntrance(hasAppeared, index: 6, reduceMotion: reduceMotion)
                     }
                     HStack { Text("Upcoming").font(.title2.bold()); Spacer(); Button("See all") { selection = 1 }.font(.subheadline.bold()) }
-                    if store.isLoading { ProgressView("Loading subscriptions…").frame(maxWidth: .infinity).cardStyle() }
-                    else if store.activeSubscriptions.isEmpty { ContentUnavailableView("No active subscriptions", systemImage: "creditcard", description: Text("Add one manually or import a trial screenshot. Cancelled services remain in history.")).cardStyle() }
+                    if store.isLoading { DashboardSkeleton() }
+                    else if store.activeSubscriptions.isEmpty { ContentUnavailableView("Ready to scan", systemImage: "sparkle.magnifyingglass", description: Text("Connect a source once and review detected subscriptions before anything is added.")).cardStyle() }
                     else {
                         VStack(spacing: 0) {
-                            ForEach(Array(store.activeSubscriptions.prefix(3).enumerated()), id: \.element.id) { index, subscription in
+                            ForEach(Array(store.upcomingSubscriptions.prefix(3).enumerated()), id: \.element.id) { index, subscription in
                                 NavigationLink(value: subscription) { SubscriptionRow(subscription: subscription) }.buttonStyle(.plain)
                                 if index < min(2, store.activeSubscriptions.count - 1) { Divider().padding(.leading, 60) }
                             }
@@ -99,14 +109,57 @@ struct HomeView: View {
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: Subscription.self) { SubscriptionDetailView(subscription: $0) }
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingProfile = true } label: { Image(systemName: "person.crop.circle.fill") }.accessibilityLabel("Profile and settings") } }
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showingDiscovery = true } label: { Image(systemName: "sparkle.magnifyingglass") }.accessibilityLabel("Find subscriptions")
+                    Button { showingProfile = true } label: { Image(systemName: "person.crop.circle.fill") }.accessibilityLabel("Profile and settings")
+                }
+            }
             .sheet(isPresented: $showingProfile) { SettingsView() }
+            .sheet(isPresented: $showingDiscovery) { SubscriptionDiscoveryView() }
         }
     }
 
     private var savingsRate: Double {
         guard store.annualSpend.cents > 0 else { return 0 }
         return min(1, Double(store.availableSavings.cents) / Double(store.annualSpend.cents))
+    }
+}
+
+private struct DashboardSkeleton: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<3, id: \.self) { index in
+                HStack(spacing: 12) { Circle().fill(Color.secondary.opacity(0.18)).frame(width: 44, height: 44); VStack(alignment: .leading, spacing: 6) { Capsule().fill(Color.secondary.opacity(0.18)).frame(width: 130, height: 13); Capsule().fill(Color.secondary.opacity(0.12)).frame(width: 90, height: 10) }; Spacer(); Capsule().fill(Color.secondary.opacity(0.15)).frame(width: 55, height: 14) }.padding(.vertical, 8)
+                if index < 2 { Divider().padding(.leading, 56) }
+            }
+        }.cardStyle().accessibilityLabel("Loading upcoming subscriptions")
+    }
+}
+
+private struct FindSubscriptionsHero: View {
+    let action: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            Label("SUBSCRIPTION DISCOVERY", systemImage: "sparkles").font(.caption.bold()).foregroundStyle(Theme.mint)
+            Text("Find what you’re paying for.").font(.largeTitle.bold()).foregroundStyle(.white)
+            Text("Connect a bank, Apple Wallet, or a screenshot. Most users can review results in under a minute.").foregroundStyle(.white.opacity(0.76))
+            Button("Find my subscriptions", systemImage: "arrow.right", action: action).font(.headline).buttonStyle(.borderedProminent).tint(Theme.green)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(22).background(Theme.ink, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+    }
+}
+
+private struct DashboardAlertCard: View {
+    let subscription: Subscription
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: "clock.badge.exclamationmark.fill").font(.title2).foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 3) { Text("Free trial ends soon").font(.headline); Text("\(subscription.name) • \(subscription.nextPaymentText)").font(.caption).foregroundStyle(.secondary) }
+                Spacer(); Text("Remind me").font(.caption.bold()).foregroundStyle(Theme.green)
+            }.cardStyle()
+        }.buttonStyle(.plain)
     }
 }
 

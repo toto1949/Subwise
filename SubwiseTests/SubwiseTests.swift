@@ -17,6 +17,30 @@ final class SubwiseTests: XCTestCase {
         XCTAssertEqual(Money(cents: 1199) + Money(cents: 2499), Money(cents: 3698))
     }
 
+    func testBillingFrequencyPreservesRealChargedAmount() {
+        XCTAssertEqual(SubscriptionBillingFrequency.weekly.monthlyEquivalent(Money(cents: 500)).cents, 2167)
+        XCTAssertEqual(SubscriptionBillingFrequency.yearly.monthlyEquivalent(Money(cents: 12000)).cents, 1000)
+        XCTAssertEqual(SubscriptionBillingFrequency.yearly.annualized(Money(cents: 12000)).cents, 12000)
+    }
+
+    func testDiscoveryNormalizesKnownMerchantAndFlagsAppleBill() {
+        XCTAssertEqual(MerchantNormalizationService.normalize("NETFLIX.COM 8661234567").name, "Netflix")
+        let apple = MerchantNormalizationService.normalize("APPLE.COM/BILL 866-712-7753")
+        XCTAssertEqual(apple.name, "Apple purchase")
+        XCTAssertTrue(apple.needsReview)
+    }
+
+    func testDiscoveryRequiresRecurringEvidence() throws {
+        let dates = ["2026-05-18", "2026-06-18", "2026-07-18"].compactMap { ISO8601DateFormatter().date(from: $0 + "T12:00:00Z") }
+        let transactions = dates.enumerated().map { index, date in DiscoveryTransaction(id: "\(index)", rawMerchantName: "SPOTIFY USA", merchantName: nil, amount: Money(cents: 1199), date: date, paymentMethod: "Apple Wallet") }
+        let result = SubscriptionDetectionService.detect(in: transactions, source: .financeKit)
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result.first?.displayName, "Spotify")
+        XCTAssertEqual(result.first?.frequency, .monthly)
+        XCTAssertEqual(result.first?.evidenceCount, 3)
+        XCTAssertTrue(SubscriptionDetectionService.detect(in: Array(transactions.prefix(1)), source: .financeKit).isEmpty)
+    }
+
     func testCancellationResolverUsesAppleAccountForAppleBilledService() throws {
         let destination = CancellationRouteResolver.destination(serviceName: "Netflix", billingSource: .appStore)
         XCTAssertEqual(destination.url, URL(string: "https://apps.apple.com/account/subscriptions"))
@@ -146,6 +170,22 @@ final class SubwiseTests: XCTestCase {
         try await repository.upsert(item)
         let saved = try await repository.fetchAll()
         XCTAssertEqual(saved, [item])
+    }
+
+
+    @MainActor
+    func testSwiftDataRepositoryPersistsStructuredBillingMetadata() async throws {
+        let repository = try SwiftDataSubscriptionRepository(inMemory: true)
+        let renewal = Date(timeIntervalSince1970: 1_800_000_000)
+        let item = Subscription(id: UUID(), name: "Annual Service", plan: "Annual", monthlyCost: Money(cents: 1000), renewalText: "Renews Jan 15", category: .productivity, status: .active, valueScore: 60, billingSource: .serviceWebsite, billingAmount: Money(cents: 12000), billingFrequency: .yearly, renewalDate: renewal, paymentMethod: "Chase •••• 4821", discoverySource: .plaid, symbol: "square", colorName: "blue")
+        try await repository.upsert(item)
+        let values = try await repository.fetchAll()
+        let saved = try XCTUnwrap(values.first)
+        XCTAssertEqual(saved.billingAmount, Money(cents: 12000))
+        XCTAssertEqual(saved.billingFrequency, .yearly)
+        XCTAssertEqual(saved.renewalDate, renewal)
+        XCTAssertEqual(saved.paymentMethod, "Chase •••• 4821")
+        XCTAssertEqual(saved.discoverySource, .plaid)
     }
 
     @MainActor

@@ -51,7 +51,7 @@ struct ServiceIcon: View {
     var serviceName: String? = nil
     var size: CGFloat = 44
     private var color: Color {
-        switch colorName { case "blue": .blue; case "green": Theme.green; case "orange": .orange; case "purple": .purple; case "pink": .pink; case "indigo": .indigo; default: .teal }
+        switch colorName { case "blue": .blue; case "green": Theme.green; case "orange": .orange; case "purple": .purple; case "pink": .pink; case "indigo": .indigo; case "red": .red; case "cyan": .cyan; default: .teal }
     }
     var body: some View {
         ZStack {

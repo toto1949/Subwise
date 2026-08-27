@@ -25,6 +25,26 @@ nonisolated enum SubscriptionUsage: String, CaseIterable, Identifiable, Codable,
     var id: Self { self }
 }
 
+nonisolated enum SubscriptionBillingFrequency: String, CaseIterable, Identifiable, Codable, Sendable {
+    case weekly = "Weekly", monthly = "Monthly", yearly = "Yearly"
+    var id: Self { self }
+    func monthlyEquivalent(_ amount: Money) -> Money {
+        switch self {
+        case .weekly: Money(cents: Int((Double(amount.cents) * 52 / 12).rounded()))
+        case .monthly: amount
+        case .yearly: Money(cents: Int((Double(amount.cents) / 12).rounded()))
+        }
+    }
+    func annualized(_ amount: Money) -> Money {
+        switch self { case .weekly: amount * 52; case .monthly: amount * 12; case .yearly: amount }
+    }
+    var periodLabel: String { switch self { case .weekly: "week"; case .monthly: "month"; case .yearly: "year" } }
+}
+
+nonisolated enum SubscriptionDiscoverySource: String, Codable, Sendable {
+    case manual = "Manual", screenshot = "Screenshot", plaid = "Bank connection", financeKit = "Apple Wallet"
+}
+
 nonisolated struct Subscription: Identifiable, Hashable, Codable, Sendable {
     let id: UUID
     var name: String
@@ -37,9 +57,20 @@ nonisolated struct Subscription: Identifiable, Hashable, Codable, Sendable {
     var usage: SubscriptionUsage = .unknown
     var isImportant: Bool = false
     var billingSource: SubscriptionBillingSource = .unknown
+    var billingAmount: Money? = nil
+    var billingFrequency: SubscriptionBillingFrequency = .monthly
+    var renewalDate: Date? = nil
+    var paymentMethod: String? = nil
+    var discoverySource: SubscriptionDiscoverySource = .manual
+    var previousMonthlyCost: Money? = nil
     var symbol: String
     var colorName: String
-    var annualCost: Money { monthlyCost * 12 }
+    var annualCost: Money { billingAmount.map(billingFrequency.annualized) ?? (monthlyCost * 12) }
+    var chargedAmount: Money { billingAmount ?? monthlyCost }
+    var billingPriceText: String { "\(chargedAmount.formatted)/\(billingFrequency.periodLabel)" }
+    var nextPaymentText: String {
+        renewalDate?.formatted(date: .abbreviated, time: .omitted) ?? renewalText.replacingOccurrences(of: "Renews ", with: "")
+    }
     var scoreLabel: String {
         switch valueScore { case 80...: "Great value"; case 60...: "Good value"; case 40...: "Review"; case 20...: "Poor value"; default: "Likely waste" }
     }
@@ -109,6 +140,8 @@ final class AppStore {
     var householdMembers: [HouseholdMember] = []
     @ObservationIgnored private let repository: any SubscriptionRepository
     @ObservationIgnored private let optimizationEngine = LocalOptimizationEngine()
+    @ObservationIgnored private let recommendationService = SavingsRecommendationService()
+    @ObservationIgnored private var serverOpportunities: [SavingsOpportunity] = []
 
     init(repository: any SubscriptionRepository) {
         self.repository = repository
@@ -121,8 +154,8 @@ final class AppStore {
     var activeSubscriptions: [Subscription] { subscriptions.filter { $0.status != .cancelled } }
     var monthlySpend: Money { activeSubscriptions.reduce(Money(cents: 0)) { $0 + $1.monthlyCost } }
     var annualSpend: Money { monthlySpend * 12 }
-    var availableSavings: Money { opportunities.reduce(Money(cents: 0)) { $0 + $1.annualSavings } }
-    var selectedSavings: Money { opportunities.filter(\.isSelected).reduce(Money(cents: 0)) { $0 + $1.annualSavings } }
+    var availableSavings: Money { nonOverlappingSavings(opportunities) }
+    var selectedSavings: Money { nonOverlappingSavings(opportunities.filter(\.isSelected)) }
     var lifetimeVerifiedSavings: Money { savingsEvents.filter { $0.status == .userVerified }.compactMap(\.verifiedAnnualSavings).reduce(Money(cents: 0), +) }
     var activeSavingsEvents: [SavingsEvent] {
         var seen = Set<UUID>()
@@ -133,6 +166,21 @@ final class AppStore {
     // Household savings require service-level data shared by joined members. An invitation alone is not evidence of overlap.
     var householdInsights: [HouseholdInsight] { [] }
     var householdAvailableSavings: Money { householdInsights.reduce(Money(cents: 0)) { $0 + $1.annualSavings } }
+    var upcomingSubscriptions: [Subscription] {
+        activeSubscriptions.sorted {
+            switch ($0.renewalDate, $1.renewalDate) {
+            case let (lhs?, rhs?): lhs < rhs
+            case (.some, .none): true
+            case (.none, .some): false
+            case (.none, .none): $0.name < $1.name
+            }
+        }
+    }
+
+    private func nonOverlappingSavings(_ values: [SavingsOpportunity]) -> Money {
+        let grouped = Dictionary(grouping: values) { $0.subscriptionIDs.first }
+        return Money(cents: grouped.values.reduce(0) { total, group in total + (group.map(\.annualSavings.cents).max() ?? 0) })
+    }
 
     func add(_ subscription: Subscription) async throws {
         try await repository.upsert(subscription)
@@ -167,6 +215,15 @@ final class AppStore {
             errorMessage = "Your saved subscriptions could not be loaded."
         }
         isLoading = false
+    }
+
+    func refreshServerRecommendations() async {
+        do {
+            serverOpportunities = try await recommendationService.generate()
+            opportunities = currentRecommendations()
+        } catch {
+            // Offline/manual tracking remains fully usable. Authenticated users get server-verified plan data when available.
+        }
     }
 
     func verifySavings(for subscription: Subscription, action: String, verifiedAnnualSavings: Money, estimatedAnnualSavings: Money? = nil) async throws {
@@ -217,7 +274,17 @@ final class AppStore {
         let resolvedSubscriptionIDs = Set(savingsEvents.compactMap { event in
             event.status == .userVerified ? event.subscriptionID : nil
         })
-        return optimizationEngine.recommendations(for: activeSubscriptions).filter { opportunity in
+        let local = optimizationEngine.recommendations(for: activeSubscriptions)
+        let localKeys = Set(local.map { "\($0.subscriptionIDs.map(\.uuidString).sorted().joined(separator: ",")):\($0.kind.rawValue)" })
+        let remote = serverOpportunities.compactMap { opportunity -> SavingsOpportunity? in
+            guard let subscriptionID = opportunity.subscriptionIDs.first,
+                  let subscription = subscriptions.first(where: { $0.id == subscriptionID }) else { return nil }
+            var value = opportunity
+            value.merchant = subscription.name
+            let key = "\(value.subscriptionIDs.map(\.uuidString).sorted().joined(separator: ",")):\(value.kind.rawValue)"
+            return localKeys.contains(key) ? nil : value
+        }
+        return (local + remote).filter { opportunity in
             guard let primarySubscriptionID = opportunity.subscriptionIDs.first else { return true }
             return !resolvedSubscriptionIDs.contains(primarySubscriptionID)
         }

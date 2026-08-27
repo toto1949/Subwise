@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A8D100012F00000100000001 /* LinkKit in Frameworks */ = {isa = PBXBuildFile; productRef = A8D100032F00000100000001 /* LinkKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		187B87BF303D41E500A69360 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A8D100012F00000100000001 /* LinkKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +130,7 @@
 			);
 			name = Subwise;
 			packageProductDependencies = (
+				A8D100032F00000100000001 /* LinkKit */,
 			);
 			productName = Subwise;
 			productReference = 187B87B1303D41E300A69360 /* Subwise.app */;
@@ -208,6 +214,9 @@
 			);
 			mainGroup = 187B87A8303D41E300A69360;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A8D100022F00000100000001 /* XCRemoteSwiftPackageReference "plaid-link-ios-spm" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 187B87B2303D41E300A69360 /* Products */;
 			projectDirPath = "";
@@ -597,6 +606,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A8D100022F00000100000001 /* XCRemoteSwiftPackageReference "plaid-link-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/plaid/plaid-link-ios-spm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A8D100032F00000100000001 /* LinkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A8D100022F00000100000001 /* XCRemoteSwiftPackageReference "plaid-link-ios-spm" */;
+			productName = LinkKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 187B87A9303D41E300A69360 /* Project object */;
 }

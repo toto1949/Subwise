@@ -67,6 +67,12 @@ final class StoredSubscription {
     var usageRaw: String = SubscriptionUsage.unknown.rawValue
     var isImportant: Bool = false
     var billingSourceRaw: String = SubscriptionBillingSource.unknown.rawValue
+    var billingAmountCents: Int?
+    var billingFrequencyRaw: String = SubscriptionBillingFrequency.monthly.rawValue
+    var renewalDate: Date?
+    var paymentMethod: String?
+    var discoverySourceRaw: String = SubscriptionDiscoverySource.manual.rawValue
+    var previousMonthlyCents: Int?
     var symbol: String
     var colorName: String
     var updatedAt: Date
@@ -76,6 +82,9 @@ final class StoredSubscription {
         renewalText = value.renewalText; categoryRaw = value.category.rawValue; statusRaw = value.status.rawValue
         valueScore = value.valueScore; usageRaw = value.usage.rawValue; isImportant = value.isImportant
         billingSourceRaw = value.billingSource.rawValue
+        billingAmountCents = value.billingAmount?.cents; billingFrequencyRaw = value.billingFrequency.rawValue
+        renewalDate = value.renewalDate; paymentMethod = value.paymentMethod; discoverySourceRaw = value.discoverySource.rawValue
+        previousMonthlyCents = value.previousMonthlyCost?.cents
         symbol = value.symbol; colorName = value.colorName; updatedAt = .now
     }
 
@@ -83,6 +92,9 @@ final class StoredSubscription {
         name = value.name; plan = value.plan; monthlyCents = value.monthlyCost.cents; renewalText = value.renewalText
         categoryRaw = value.category.rawValue; statusRaw = value.status.rawValue; valueScore = value.valueScore
         usageRaw = value.usage.rawValue; isImportant = value.isImportant; billingSourceRaw = value.billingSource.rawValue
+        billingAmountCents = value.billingAmount?.cents; billingFrequencyRaw = value.billingFrequency.rawValue
+        renewalDate = value.renewalDate; paymentMethod = value.paymentMethod; discoverySourceRaw = value.discoverySource.rawValue
+        previousMonthlyCents = value.previousMonthlyCost?.cents
         symbol = value.symbol; colorName = value.colorName; updatedAt = .now
     }
 
@@ -92,6 +104,11 @@ final class StoredSubscription {
                      status: SubscriptionStatus(rawValue: statusRaw) ?? .review,
                      valueScore: valueScore, usage: SubscriptionUsage(rawValue: usageRaw) ?? .unknown,
                      isImportant: isImportant, billingSource: SubscriptionBillingSource(rawValue: billingSourceRaw) ?? .unknown,
+                     billingAmount: billingAmountCents.map(Money.init(cents:)),
+                     billingFrequency: SubscriptionBillingFrequency(rawValue: billingFrequencyRaw) ?? .monthly,
+                     renewalDate: renewalDate, paymentMethod: paymentMethod,
+                     discoverySource: SubscriptionDiscoverySource(rawValue: discoverySourceRaw) ?? .manual,
+                     previousMonthlyCost: previousMonthlyCents.map(Money.init(cents:)),
                      symbol: symbol, colorName: colorName)
     }
 }
