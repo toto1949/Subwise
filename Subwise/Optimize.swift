@@ -12,12 +12,14 @@ struct OptimizeView: View {
                 ForEach($store.opportunities) { $opportunity in OpportunityCard(opportunity: $opportunity) }
                 PrimaryButton(title: "Apply selected plan", systemImage: "arrow.right") { showingPlan = true }.padding(.top, 4)
             }.padding() }.background(Color(.systemGroupedBackground)).navigationTitle("Your savings plan")
+            .navigationDestination(for: Subscription.self) { SubscriptionDetailView(subscription: $0) }
             .sheet(isPresented: $showingPlan) { SavingsPlanView() }
         }
     }
 }
 
 struct OpportunityCard: View {
+    @Environment(AppStore.self) private var store
     @Binding var opportunity: SavingsOpportunity
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -26,6 +28,13 @@ struct OpportunityCard: View {
             Text(opportunity.explanation).font(.subheadline).foregroundStyle(.secondary)
             HStack { Label("\(opportunity.confidence) confidence", systemImage: "checkmark.shield"); Spacer(); Label("\(opportunity.effortMinutes) min", systemImage: "clock") }.font(.caption).foregroundStyle(.secondary)
             Toggle("Include in plan", isOn: $opportunity.isSelected).font(.subheadline.bold())
+            if let subscription = store.subscriptions.first(where: { $0.name == opportunity.merchant }) {
+                NavigationLink(value: subscription) {
+                    Label("Review \(subscription.name) details", systemImage: "arrow.right.circle")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(Theme.green)
+                }
+            }
         }.cardStyle()
     }
 }

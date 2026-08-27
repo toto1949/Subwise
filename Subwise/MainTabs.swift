@@ -53,11 +53,11 @@ struct HomeView: View {
                     ) { selection = 2 }
                     .dashboardEntrance(hasAppeared, index: 0, reduceMotion: reduceMotion)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                        DashboardMetric(value: store.monthlySpend.formatted, label: "Monthly spend", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+                        DashboardMetric(value: store.monthlySpend.formatted, label: "Monthly spend", systemImage: "arrow.triangle.2.circlepath.circle.fill") { selection = 1 }
                             .dashboardEntrance(hasAppeared, index: 1, reduceMotion: reduceMotion)
-                        DashboardMetric(value: store.annualSpend.compactFormatted, label: "Annual cost", systemImage: "calendar")
+                        DashboardMetric(value: store.annualSpend.compactFormatted, label: "Annual cost", systemImage: "calendar") { selection = 1 }
                             .dashboardEntrance(hasAppeared, index: 2, reduceMotion: reduceMotion)
-                        DashboardMetric(value: savingsRate.formatted(.percent.precision(.fractionLength(0))), label: "Savings rate", systemImage: "chart.line.uptrend.xyaxis")
+                        DashboardMetric(value: savingsRate.formatted(.percent.precision(.fractionLength(0))), label: "Savings rate", systemImage: "chart.line.uptrend.xyaxis") { selection = 2 }
                             .dashboardEntrance(hasAppeared, index: 3, reduceMotion: reduceMotion)
                     }
                     if !store.subscriptions.isEmpty {
@@ -154,24 +154,29 @@ private struct DashboardMetric: View {
     let value: String
     let label: String
     let systemImage: String
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.headline)
-                .foregroundStyle(Theme.sky)
-                .padding(8)
-                .background(
-                    LinearGradient(colors: [Theme.sky.opacity(0.24), Theme.sky.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                )
-                .shadow(color: Theme.sky.opacity(0.18), radius: 8, y: 4)
-            Text(value).font(.title3.bold()).contentTransition(.numericText()).minimumScaleFactor(0.72)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.headline)
+                    .foregroundStyle(Theme.sky)
+                    .padding(8)
+                    .background(
+                        LinearGradient(colors: [Theme.sky.opacity(0.24), Theme.sky.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    )
+                    .shadow(color: Theme.sky.opacity(0.18), radius: 8, y: 4)
+                Text(value).font(.title3.bold()).contentTransition(.numericText()).minimumScaleFactor(0.72)
+                Text(label).font(.caption).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+            .cardStyle()
         }
-        .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
-        .cardStyle()
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens related Subwise data")
     }
 }
 

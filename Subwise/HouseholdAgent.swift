@@ -175,8 +175,6 @@ struct AgentView: View {
                 conversationID = reply.conversationId
                 messages.append(.init(isUser: false, text: "\(reply.answer)\n\n\(reply.disclaimer)", estimatedMonthlySavingsCents: reply.estimatedMonthlySavingsCents, recommendedCount: reply.recommendedSubscriptionIds.count))
             } catch {
-                let fallback = LocalSavingsAgent.reply(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.subscriptions)
-                conversationID = fallback.conversationId
                 let detail: String
                 if let apiError = error as? APIError {
                     switch apiError {
@@ -203,7 +201,15 @@ struct AgentView: View {
                 } else {
                     detail = error.localizedDescription
                 }
-                messages.append(.init(isUser: false, text: "Server agent unavailable (\(detail)) — showing on-device guidance:\n\n\(fallback.answer)\n\n\(fallback.disclaimer)"))
+                if account.state == .authenticated {
+                    // An authenticated production session must never silently replace an AI response
+                    // with deterministic demo guidance. Keep the failure visible and retryable.
+                    messages.append(.init(isUser: false, text: "The Savings Agent could not complete this request (\(detail)). Check your connection and try again."))
+                } else {
+                    let fallback = LocalSavingsAgent.reply(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.subscriptions)
+                    conversationID = fallback.conversationId
+                    messages.append(.init(isUser: false, text: "On-device guidance (\(detail)):\n\n\(fallback.answer)\n\n\(fallback.disclaimer)"))
+                }
             }
             isSending = false
         }

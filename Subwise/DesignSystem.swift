@@ -67,12 +67,21 @@ enum ServiceBrand {
         (["spotify"], "spotify.com"),
         (["netflix"], "netflix.com"),
         (["youtube"], "youtube.com"),
+        (["google one", "google drive", "google"], "google.com"),
         (["apple music", "itunes"], "music.apple.com"),
         (["icloud"], "icloud.com"),
         (["amazon", "prime video"], "amazon.com"),
         (["microsoft", "office 365", "microsoft 365"], "microsoft.com"),
         (["adobe"], "adobe.com"),
         (["canva"], "canva.com"),
+        (["notion"], "notion.so"),
+        (["dropbox"], "dropbox.com"),
+        (["clickup"], "clickup.com"),
+        (["slack"], "slack.com"),
+        (["zoom"], "zoom.us"),
+        (["github"], "github.com"),
+        (["figma"], "figma.com"),
+        (["ruangguru"], "ruangguru.com"),
         (["disney"], "disneyplus.com"),
         (["hulu"], "hulu.com"),
         (["paramount"], "paramountplus.com"),
@@ -82,6 +91,11 @@ enum ServiceBrand {
         (["headspace"], "headspace.com"),
         (["duolingo"], "duolingo.com"),
         (["grammarly"], "grammarly.com"),
+        (["calm"], "calm.com"),
+        (["strava"], "strava.com"),
+        (["peloton"], "onepeloton.com"),
+        (["playstation"], "playstation.com"),
+        (["xbox"], "xbox.com"),
         (["chatgpt", "openai"], "openai.com")
     ]
 
@@ -89,7 +103,9 @@ enum ServiceBrand {
         guard let name else { return nil }
         let normalized = name.lowercased()
         guard let domain = domains.first(where: { $0.matches.contains { normalized.contains($0) } })?.domain else { return nil }
-        return URL(string: "https://www.google.com/s2/favicons?domain=\(domain)&sz=128")
+        var components = URLComponents(string: "https://www.google.com/s2/favicons")
+        components?.queryItems = [URLQueryItem(name: "domain", value: domain), URLQueryItem(name: "sz", value: "128")]
+        return components?.url
     }
 }
 
