@@ -26,6 +26,11 @@ struct SubwiseApp: App {
         if ProcessInfo.processInfo.arguments.contains("-uiTestResetOnboarding") {
             UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
         }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-uiTestSkipOnboarding") {
+            UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+        }
+        #endif
     }
     var body: some Scene {
         WindowGroup {

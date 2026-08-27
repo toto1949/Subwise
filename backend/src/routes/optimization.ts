@@ -8,7 +8,7 @@ const plugin: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", app.authenticate);
   app.post("/optimization/generate", async (request, reply) => {
     const subscriptions = await app.db.subscription.findMany({ where: { userId: request.userId, status: { in: ["ACTIVE", "TRIAL", "NEEDS_REVIEW"] } } });
-    const results = optimizeSubscriptions(subscriptions.map((item) => ({ id: item.id, merchant: item.displayName, category: item.category, monthlyCents: monthlyEquivalent(item.amountCents, item.frequency.toLowerCase()), valueScore: item.valueScore ?? 50, usage: item.usage as "high" | "medium" | "low" | "unknown" })));
+    const results = optimizeSubscriptions(subscriptions.map((item) => ({ id: item.id, merchant: item.displayName, category: item.category, monthlyCents: monthlyEquivalent(item.amountCents, item.frequency.toLowerCase()), valueScore: item.valueScore ?? 50, usage: item.usage as "high" | "medium" | "low" | "unknown", isImportant: item.isImportant })));
     const plan = await app.db.$transaction(async (tx) => {
       await tx.recommendation.updateMany({ where: { subscription: { userId: request.userId }, status: "PROPOSED" }, data: { status: "DISMISSED" } });
       const recommendations = await Promise.all(results.map((result) => tx.recommendation.create({ data: { subscriptionId: result.subscriptionIds[0], type: result.type, estimatedMonthlySavingsCents: result.estimatedMonthlySavingsCents, estimatedAnnualSavingsCents: result.estimatedAnnualSavingsCents, confidence: result.confidence, effortMinutes: result.effortMinutes, reasonCodes: result.reasonCodes, explanation: result.explanation } })));

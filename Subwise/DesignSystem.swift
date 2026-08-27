@@ -8,6 +8,21 @@ enum Theme {
     static let sky = Color("BrandSky")
 }
 
+extension SubscriptionCategory {
+    var chartColor: Color {
+        switch self {
+        case .streaming: .red
+        case .music: .green
+        case .productivity: .blue
+        case .cloud: .cyan
+        case .ai: .purple
+        case .fitness: .orange
+        case .news: .indigo
+        case .other: .gray
+        }
+    }
+}
+
 extension View {
     func cardStyle() -> some View {
         padding()

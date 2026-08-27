@@ -93,7 +93,8 @@ struct AgentView: View {
     @FocusState private var isComposerFocused: Bool
     var body: some View {
         NavigationStack { VStack(spacing: 0) {
-            ScrollView { LazyVStack(spacing: 14) {
+            ScrollViewReader { proxy in
+                ScrollView { LazyVStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) { Label("Savings Agent", systemImage: "sparkles").font(.title2.bold()); Text(agentStatus).font(.caption.bold()).foregroundStyle(canUseAgent ? Theme.green : .orange) }.frame(maxWidth: .infinity, alignment: .leading).padding()
                 if !canUseAgent {
                     VStack(alignment: .leading, spacing: 12) {
@@ -117,6 +118,23 @@ struct AgentView: View {
                             Label("Up to \(Money(cents: cents).formatted)/month across \(message.recommendedCount) reviewed \(message.recommendedCount == 1 ? "subscription" : "subscriptions")", systemImage: "chart.line.downtrend.xyaxis")
                                 .font(.caption.bold()).foregroundStyle(Theme.green).cardStyle()
                         }
+                        ForEach(message.recommendedSubscriptionIDs, id: \.self) { identifier in
+                            if let subscription = store.subscriptions.first(where: { $0.id == identifier }) {
+                                NavigationLink(value: subscription) {
+                                    HStack(spacing: 10) {
+                                        ServiceIcon(symbol: subscription.symbol, colorName: subscription.colorName, serviceName: subscription.name, size: 36)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Review \(subscription.name)").font(.subheadline.bold())
+                                            Text("\(subscription.monthlyCost.formatted)/month • \(subscription.scoreLabel)").font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+                                    }
+                                    .cardStyle()
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }.padding(.horizontal)
                 }
                 if messages.count == 1, canUseAgent {
@@ -126,8 +144,14 @@ struct AgentView: View {
                         PromptButton("What renews soon?") { ask("Which of my saved subscriptions should I review first, and why?") }
                     }.padding()
                 }
+                Color.clear.frame(height: 1).id("agent-bottom")
             } }
-            .defaultScrollAnchor(.bottom)
+                .defaultScrollAnchor(.bottom)
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: messages.count) { _, _ in
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("agent-bottom", anchor: .bottom) }
+                }
+            }
             HStack(spacing: 12) {
                 TextField(canUseAgent ? "Ask about your subscriptions" : agentStatus, text: $query, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -153,17 +177,18 @@ struct AgentView: View {
             }
             .padding()
             .background(.bar)
-        }.navigationBarHidden(true) }
+        }
+        .navigationBarHidden(true)
+        .navigationDestination(for: Subscription.self) { SubscriptionDetailView(subscription: $0) }
+        }
     }
     private func ask(_ text: String) {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, !isSending, canUseAgent else { return }
         messages.append(.init(isUser: true, text: clean)); query = ""; isSending = true
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        // Defer focus to next runloop to avoid UIKit warning:
-        // +[UIInputViewSetPlacementInvisible placementWithPlacement:]: Should not be called with an invisible placement
-        // happens when @FocusState is toggled synchronously during the TextField's layout pass
-        DispatchQueue.main.async { isComposerFocused = true }
+        // Defer until after the TextField submit/layout pass, then intentionally dismiss the keyboard.
+        DispatchQueue.main.async { isComposerFocused = false }
         Task {
             do {
                 let reply: AgentReply
@@ -173,7 +198,8 @@ struct AgentView: View {
                     reply = LocalSavingsAgent.reply(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.subscriptions)
                 }
                 conversationID = reply.conversationId
-                messages.append(.init(isUser: false, text: "\(reply.answer)\n\n\(reply.disclaimer)", estimatedMonthlySavingsCents: reply.estimatedMonthlySavingsCents, recommendedCount: reply.recommendedSubscriptionIds.count))
+                let recommendedIDs = reply.recommendedSubscriptionIds.compactMap(UUID.init(uuidString:))
+                messages.append(.init(isUser: false, text: "\(reply.answer)\n\n\(reply.disclaimer)", estimatedMonthlySavingsCents: reply.estimatedMonthlySavingsCents, recommendedCount: recommendedIDs.count, recommendedSubscriptionIDs: recommendedIDs))
             } catch {
                 let detail: String
                 if let apiError = error as? APIError {
@@ -236,5 +262,6 @@ private struct AgentMessage: Identifiable {
     let text: String
     var estimatedMonthlySavingsCents: Int? = nil
     var recommendedCount: Int = 0
+    var recommendedSubscriptionIDs: [UUID] = []
 }
 private struct PromptButton: View { let title: String; let action: () -> Void; init(_ title: String, action: @escaping () -> Void) { self.title = title; self.action = action }; var body: some View { Button(title, action: action).buttonStyle(.bordered).buttonBorderShape(.capsule) } }

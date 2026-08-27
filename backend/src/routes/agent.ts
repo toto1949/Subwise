@@ -20,7 +20,31 @@ const clientSubscription = z.object({
   status: z.string().min(1).max(40)
 });
 
-type AgentContext = z.infer<typeof clientSubscription> & { allowedActions: string[] };
+type AgentContext = z.infer<typeof clientSubscription> & {
+  allowedActions: string[];
+  normalizedMerchant?: string;
+  sameMerchantCount?: number;
+  sameCategoryCount?: number;
+};
+
+function enrichRelationships(items: AgentContext[]): AgentContext[] {
+  const merchantCounts = Map.groupBy(items, (item) => normalizeAgentMerchant(item.merchant));
+  const categoryCounts = Map.groupBy(items, (item) => item.category.toLowerCase());
+  return items.map((item) => {
+    const normalizedMerchant = normalizeAgentMerchant(item.merchant);
+    return {
+      ...item,
+      normalizedMerchant,
+      sameMerchantCount: merchantCounts.get(normalizedMerchant)?.length ?? 1,
+      sameCategoryCount: categoryCounts.get(item.category.toLowerCase())?.length ?? 1
+    };
+  });
+}
+
+function normalizeAgentMerchant(value: string) {
+  const planWords = new Set(["premium", "standard", "basic", "plus", "pro", "monthly", "annual", "yearly", "subscription", "plan"]);
+  return value.toLowerCase().split(/[^a-z0-9]+/).filter((part) => part && !planWords.has(part)).join(" ");
+}
 
 export function verifiedSavingsFor(ids: string[], context: AgentContext[]) {
   const unique = new Set(ids);
@@ -34,7 +58,7 @@ const plugin: FastifyPluginAsync = async (app) => {
     const { message, conversationId, monthlySavingsGoalCents, subscriptions: suppliedSubscriptions } = z.object({ message: z.string().min(1).max(2_000), conversationId: z.string().uuid().optional(), monthlySavingsGoalCents: z.number().int().nonnegative().max(10_000_000), subscriptions: z.array(clientSubscription).max(100).default([]) }).parse(request.body);
     const subscriptions = await app.db.subscription.findMany({ where: { userId: request.userId, status: { in: ["ACTIVE", "TRIAL", "NEEDS_REVIEW"] } }, select: { id: true, displayName: true, amountCents: true, frequency: true, usage: true, valueScore: true, isImportant: true, category: true } });
     const databaseContext: AgentContext[] = subscriptions.map((item) => ({ id: item.id, merchant: item.displayName, monthlyEquivalentCents: monthlyEquivalent(item.amountCents, item.frequency.toLowerCase()), usage: item.usage === "unknown" ? "not_reported" : item.usage as "high" | "medium" | "low", valueScore: item.valueScore ?? 50, userPriority: item.isImportant ? "keep" : "normal", category: item.category, status: "saved", allowedActions: item.isImportant ? ["keep", "review"] : ["keep", "review", "cancel"] }));
-    const context: AgentContext[] = (suppliedSubscriptions.length ? suppliedSubscriptions : databaseContext).map((item) => ({ ...item, allowedActions: item.userPriority === "keep" ? ["keep", "review"] : ["keep", "review", "cancel"] }));
+    const context = enrichRelationships((suppliedSubscriptions.length ? suppliedSubscriptions : databaseContext).map((item) => ({ ...item, allowedActions: item.userPriority === "keep" ? ["keep", "review"] : ["keep", "review", "cancel"] })));
     if (!app.config.OPENAI_API_KEY) throw new AppError("AI_NOT_CONFIGURED", "Add OPENAI_API_KEY to the server environment before using the Savings Agent", 503);
 
     const existingConversation = conversationId ? await app.db.aIConversation.findFirst({ where: { id: conversationId, userId: request.userId }, include: { messages: { orderBy: { createdAt: "desc" }, take: 20 } } }) : null;
@@ -45,7 +69,7 @@ const plugin: FastifyPluginAsync = async (app) => {
     try {
       response = await client.responses.parse({
         model: app.config.OPENAI_MODEL,
-        instructions: "You are Subwise's advisory Savings Agent. Use only the supplied structured subscriptions and conversation history. Respect userPriority=keep and allowedActions. Recommend only subscription IDs present in the supplied data. Do not invent prices, discounts, eligibility, renewal dates, actions, or completed savings. Explain uncertainty, never guarantee savings, and never request credentials or sensitive financial data. Keep the response concise and actionable.",
+        instructions: "You are Subwise's advisory Savings Agent. Use only the supplied structured subscriptions and conversation history. Respect userPriority=keep and allowedActions. Recommend only subscription IDs present in the supplied data. sameMerchantCount greater than 1 is a potential exact duplicate that should be compared before removal; sameCategoryCount greater than 1 is only category overlap, never proof of a duplicate. Do not invent prices, discounts, eligibility, renewal dates, actions, or completed savings. Explain uncertainty, never guarantee savings, and never request credentials or sensitive financial data. Keep the response concise and actionable.",
         input: JSON.stringify({
           conversationHistory: history,
           userMessage: message,

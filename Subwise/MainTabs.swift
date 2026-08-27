@@ -3,10 +3,11 @@ import SwiftUI
 
 struct MainTabView: View {
     @State private var selection = 0
+    @State private var selectedCategory: SubscriptionCategory?
     var body: some View {
         TabView(selection: $selection) {
-            HomeView(selection: $selection).tabItem { Label("Home", systemImage: "house.fill") }.tag(0)
-            SubscriptionsView().tabItem { Label("Subs", systemImage: "creditcard.fill") }.tag(1)
+            HomeView(selection: $selection, selectedCategory: $selectedCategory).tabItem { Label("Home", systemImage: "house.fill") }.tag(0)
+            SubscriptionsView(category: $selectedCategory).tabItem { Label("Subs", systemImage: "creditcard.fill") }.tag(1)
             OptimizeView().tabItem { Label("Optimize", systemImage: "sparkles") }.tag(2)
             HouseholdView().tabItem { Label("Family", systemImage: "person.2.fill") }.tag(3)
             AgentView().tabItem { Label("Agent", systemImage: "message.fill") }.tag(4)
@@ -32,6 +33,7 @@ private extension View {
 struct HomeView: View {
     @Environment(AppStore.self) private var store
     @Binding var selection: Int
+    @Binding var selectedCategory: SubscriptionCategory?
     @State private var showingProfile = false
     @State private var hasAppeared = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -61,10 +63,15 @@ struct HomeView: View {
                             .dashboardEntrance(hasAppeared, index: 3, reduceMotion: reduceMotion)
                     }
                     if !store.subscriptions.isEmpty {
+                        CategorySpendCard(subscriptions: store.subscriptions) { category in
+                            selectedCategory = category
+                            selection = 1
+                        }
+                        .dashboardEntrance(hasAppeared, index: 4, reduceMotion: reduceMotion)
                         ProjectionChart(monthlySpend: store.monthlySpend, annualSavings: store.availableSavings)
-                            .dashboardEntrance(hasAppeared, index: 4, reduceMotion: reduceMotion)
-                        MonthlySpendCard(monthlySpend: store.monthlySpend)
                             .dashboardEntrance(hasAppeared, index: 5, reduceMotion: reduceMotion)
+                        MonthlySpendCard(monthlySpend: store.monthlySpend)
+                            .dashboardEntrance(hasAppeared, index: 6, reduceMotion: reduceMotion)
                     }
                     HStack { Text("Upcoming").font(.title2.bold()); Spacer(); Button("See all") { selection = 1 }.font(.subheadline.bold()) }
                     if store.isLoading { ProgressView("Loading subscriptions…").frame(maxWidth: .infinity).cardStyle() }
@@ -100,6 +107,87 @@ struct HomeView: View {
     private var savingsRate: Double {
         guard store.annualSpend.cents > 0 else { return 0 }
         return min(1, Double(store.availableSavings.cents) / Double(store.annualSpend.cents))
+    }
+}
+
+private struct CategorySpendSlice: Identifiable {
+    let category: SubscriptionCategory
+    let cents: Int
+    let subscriptionCount: Int
+    var id: SubscriptionCategory { category }
+}
+
+private struct CategorySpendCard: View {
+    let subscriptions: [Subscription]
+    let action: (SubscriptionCategory) -> Void
+
+    private var slices: [CategorySpendSlice] {
+        Dictionary(grouping: subscriptions, by: \.category)
+            .map { category, items in
+                CategorySpendSlice(category: category, cents: items.reduce(0) { $0 + $1.monthlyCost.cents }, subscriptionCount: items.count)
+            }
+            .sorted { $0.cents > $1.cents }
+    }
+
+    private var totalCents: Int { slices.reduce(0) { $0 + $1.cents } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Spend by category").font(.headline)
+                    Text("Tap a category to review its subscriptions").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chart.pie.fill").foregroundStyle(Theme.sky)
+            }
+            VStack(spacing: 16) {
+                Chart(slices) { slice in
+                    SectorMark(
+                        angle: .value("Monthly spend", slice.cents),
+                        innerRadius: .ratio(0.62),
+                        angularInset: 2
+                    )
+                    .cornerRadius(4)
+                    .foregroundStyle(slice.category.chartColor)
+                }
+                .chartLegend(.hidden)
+                .chartBackground { _ in
+                    VStack(spacing: 1) {
+                        Text(Money(cents: totalCents).compactFormatted).font(.headline)
+                        Text("per month").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(height: 180)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(slices) { slice in
+                        Button { action(slice.category) } label: {
+                            HStack(spacing: 8) {
+                                Circle().fill(slice.category.chartColor).frame(width: 9, height: 9)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(slice.category.rawValue).font(.caption.bold()).lineLimit(1)
+                                    Text("\(slice.subscriptionCount) • \(percentage(for: slice))")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(10)
+                            .background(slice.category.chartColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(slice.category.rawValue), \(percentage(for: slice)), \(slice.subscriptionCount) subscriptions")
+                        .accessibilityHint("Shows this category")
+                    }
+                }
+            }
+        }
+        .cardStyle()
+    }
+
+    private func percentage(for slice: CategorySpendSlice) -> String {
+        guard totalCents > 0 else { return "0%" }
+        return (Double(slice.cents) / Double(totalCents)).formatted(.percent.precision(.fractionLength(0)))
     }
 }
 

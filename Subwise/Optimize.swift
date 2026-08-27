@@ -9,8 +9,17 @@ struct OptimizeView: View {
             ScrollView { VStack(alignment: .leading, spacing: 16) {
                 HStack { Label("\(store.opportunities.count) OPPORTUNITIES", systemImage: "sparkles").font(.caption.bold()).foregroundStyle(Theme.green); Spacer(); Text("\(store.availableSavings.compactFormatted)/year").font(.headline).foregroundStyle(Theme.green) }
                 Text("Start with the highest-impact changes. You approve every action.").foregroundStyle(.secondary)
+                if !store.activeSavingsEvents.isEmpty {
+                    ActivePlanCard(events: store.activeSavingsEvents)
+                }
+                if store.opportunities.isEmpty {
+                    ContentUnavailableView("No review suggestions yet", systemImage: "checkmark.seal", description: Text("Update usage, importance, or trial details and Subwise will recalculate your plan."))
+                        .cardStyle()
+                }
                 ForEach($store.opportunities) { $opportunity in OpportunityCard(opportunity: $opportunity) }
-                PrimaryButton(title: "Apply selected plan", systemImage: "arrow.right") { showingPlan = true }.padding(.top, 4)
+                PrimaryButton(title: "Review selected plan", systemImage: "arrow.right") { showingPlan = true }
+                    .disabled(store.selectedSavings.cents == 0)
+                    .padding(.top, 4)
             }.padding() }.background(Color(.systemGroupedBackground)).navigationTitle("Your savings plan")
             .navigationDestination(for: Subscription.self) { SubscriptionDetailView(subscription: $0) }
             .sheet(isPresented: $showingPlan) { SavingsPlanView() }
@@ -26,6 +35,19 @@ struct OpportunityCard: View {
             HStack { Text(opportunity.kind.rawValue).font(.caption2.bold()).foregroundStyle(Theme.green).padding(.horizontal, 9).padding(.vertical, 5).background(Theme.mint, in: Capsule()); Spacer(); Text("\(opportunity.annualSavings.compactFormatted)/yr").font(.headline).foregroundStyle(Theme.green) }
             Text(opportunity.title).font(.headline)
             Text(opportunity.explanation).font(.subheadline).foregroundStyle(.secondary)
+            if opportunity.subscriptionIDs.count > 1 {
+                HStack(spacing: -7) {
+                    ForEach(opportunity.subscriptionIDs.prefix(4), id: \.self) { identifier in
+                        if let subscription = store.subscriptions.first(where: { $0.id == identifier }) {
+                            ServiceIcon(symbol: subscription.symbol, colorName: subscription.colorName, serviceName: subscription.name, size: 34)
+                                .background(Color(.secondarySystemBackground), in: Circle())
+                                .overlay { Circle().stroke(Color(.secondarySystemBackground), lineWidth: 2) }
+                        }
+                    }
+                    Text("Compare \(opportunity.subscriptionIDs.count) saved entries")
+                        .font(.caption.bold()).foregroundStyle(.secondary).padding(.leading, 14)
+                }
+            }
             HStack { Label("\(opportunity.confidence) confidence", systemImage: "checkmark.shield"); Spacer(); Label("\(opportunity.effortMinutes) min", systemImage: "clock") }.font(.caption).foregroundStyle(.secondary)
             Toggle("Include in plan", isOn: $opportunity.isSelected).font(.subheadline.bold())
             if let subscription = store.subscriptions.first(where: { $0.name == opportunity.merchant }) {
@@ -39,24 +61,81 @@ struct OpportunityCard: View {
     }
 }
 
+private struct ActivePlanCard: View {
+    @Environment(AppStore.self) private var store
+    let events: [SavingsEvent]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("PLAN IN PROGRESS", systemImage: "flag.checkered")
+                        .font(.caption.bold()).foregroundStyle(Theme.green)
+                    Text("\(events.count) \(events.count == 1 ? "action" : "actions") ready to review").font(.headline)
+                }
+                Spacer()
+                Text(store.activePlanAnnualSavings.compactFormatted + "/yr")
+                    .font(.headline).foregroundStyle(Theme.green)
+            }
+            ForEach(events) { event in
+                if let subscription = store.subscriptions.first(where: { $0.id == event.subscriptionID }) {
+                    NavigationLink(value: subscription) {
+                        HStack(spacing: 10) {
+                            ServiceIcon(symbol: subscription.symbol, colorName: subscription.colorName, serviceName: subscription.name, size: 38)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(event.action).font(.subheadline.bold())
+                                Text("Review \(subscription.name) • up to \(event.estimatedAnnualSavings.compactFormatted)/year")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(20)
+        .background(Theme.mint, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+}
+
 struct SavingsPlanView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var showingConfirmation = false
+    @State private var isStarting = false
+    @State private var errorMessage: String?
     private var monthlySavings: Money { Money(cents: store.selectedSavings.cents / 12) }
+    private var selectedOpportunities: [SavingsOpportunity] { store.opportunities.filter(\.isSelected) }
     var body: some View {
         NavigationStack { ScrollView { VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) { Text("YOUR NEW MONTHLY SPEND").font(.caption.bold()).foregroundStyle(Theme.mint); Text((Money(cents: max(0, store.monthlySpend.cents - monthlySavings.cents))).formatted).font(.largeTitle.bold()).foregroundStyle(.white); Text("Save \(monthlySavings.formatted)/month • \(store.selectedSavings.formatted)/year").foregroundStyle(.white.opacity(0.75)) }.frame(maxWidth: .infinity, alignment: .leading).padding(22).background(Theme.ink, in: RoundedRectangle(cornerRadius: 22))
             Text("Selected actions").font(.title2.bold())
-            ForEach(store.opportunities.filter(\.isSelected)) { item in HStack { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green); VStack(alignment: .leading) { Text(item.title).font(.headline); Text("Estimated \(item.annualSavings.formatted)/year").font(.caption).foregroundStyle(.secondary) }; Spacer() }.cardStyle() }
+            ForEach(selectedOpportunities) { item in HStack { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green); VStack(alignment: .leading) { Text(item.title).font(.headline); Text("Estimated \(item.annualSavings.formatted)/year").font(.caption).foregroundStyle(.secondary) }; Spacer() }.cardStyle() }
             VStack(alignment: .leading, spacing: 6) { Label("You stay in control", systemImage: "hand.raised.fill").font(.headline); Text("Subwise will never cancel or change a plan without your explicit approval.").font(.subheadline).foregroundStyle(.secondary) }.cardStyle()
-            PrimaryButton(title: "Start savings plan", systemImage: "arrow.right") { showingConfirmation = true }
+            if let errorMessage { Label(errorMessage, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).cardStyle() }
+            PrimaryButton(title: isStarting ? "Starting plan…" : "Start savings plan", systemImage: isStarting ? nil : "arrow.right") { showingConfirmation = true }
+                .disabled(selectedOpportunities.isEmpty || isStarting)
         }.padding() }.background(Color(.systemGroupedBackground)).navigationTitle("Savings Plan").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) } }
         .alert("Start this plan?", isPresented: $showingConfirmation) { Button("Start") { startPlan() }; Button("Not now", role: .cancel) {} } message: { Text("We’ll guide you through each selected action and verify savings only after you confirm completion.") } }
     }
 
-    private func startPlan() { Task { try? await store.startSelectedSavingsPlan(); dismiss() } }
+    private func startPlan() {
+        guard !isStarting else { return }
+        isStarting = true
+        errorMessage = nil
+        Task {
+            do {
+                try await store.startSelectedSavingsPlan()
+                dismiss()
+            } catch {
+                errorMessage = "Your savings plan could not be started. Please try again."
+                isStarting = false
+            }
+        }
+    }
 }
 
 struct CancellationView: View {

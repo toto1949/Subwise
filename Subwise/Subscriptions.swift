@@ -3,9 +3,10 @@ import SwiftUI
 struct SubscriptionsView: View {
     @Environment(AppStore.self) private var store
     @State private var search = ""
-    @State private var category: SubscriptionCategory?
+    @Binding var category: SubscriptionCategory?
     @State private var showingAdd = false
     @State private var showingImport = false
+    init(category: Binding<SubscriptionCategory?> = .constant(nil)) { _category = category }
     private var filtered: [Subscription] {
         store.subscriptions.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && (category == nil || $0.category == category) }
     }

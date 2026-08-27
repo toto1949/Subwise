@@ -21,4 +21,15 @@ describe("OptimizationEngine", () => {
     expect(results).toHaveLength(1);
     expect(results[0]?.subscriptionIds).toEqual(["adobe"]);
   });
+
+  it("detects exact merchant duplicates and protects important entries", () => {
+    const results = optimizeSubscriptions([
+      { id: "netflix-main", merchant: "Netflix Premium", category: "streaming", monthlyCents: 2499, valueScore: 80, usage: "high", isImportant: true },
+      { id: "netflix-extra", merchant: "Netflix Basic", category: "streaming", monthlyCents: 1199, valueScore: 45, usage: "unknown" }
+    ]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.reasonCodes).toContain("exact_merchant_duplicate");
+    expect(results[0]?.subscriptionIds[0]).toBe("netflix-extra");
+    expect(results[0]?.estimatedMonthlySavingsCents).toBe(1199);
+  });
 });

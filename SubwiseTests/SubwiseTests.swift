@@ -33,6 +33,23 @@ final class SubwiseTests: XCTestCase {
         XCTAssertEqual(results.first?.merchant, "Adobe")
     }
 
+    func testOptimizationDetectsExactMerchantDuplicatesConservatively() {
+        let first = Subscription(id: UUID(), name: "Netflix Premium", plan: "Premium", monthlyCost: Money(cents: 2499), renewalText: "Sep 1", category: .streaming, status: .active, valueScore: 72, usage: .high, symbol: "play", colorName: "red")
+        let second = Subscription(id: UUID(), name: "Netflix Basic", plan: "Basic", monthlyCost: Money(cents: 1199), renewalText: "Sep 8", category: .streaming, status: .active, valueScore: 48, usage: .unknown, symbol: "play", colorName: "red")
+        let results = LocalOptimizationEngine().recommendations(for: [first, second])
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.kind, .duplicate)
+        XCTAssertEqual(results.first?.confidence, "High")
+        XCTAssertEqual(results.first?.subscriptionIDs.first, second.id)
+        XCTAssertEqual(results.first?.monthlySavings, second.monthlyCost)
+    }
+
+    func testCategoryOverlapRequiresUserReviewEvidence() {
+        let netflix = Subscription(id: UUID(), name: "Netflix", plan: "Premium", monthlyCost: Money(cents: 2499), renewalText: "Sep 1", category: .streaming, status: .active, valueScore: 50, usage: .unknown, symbol: "play", colorName: "red")
+        let hulu = Subscription(id: UUID(), name: "Hulu", plan: "Standard", monthlyCost: Money(cents: 999), renewalText: "Sep 8", category: .streaming, status: .active, valueScore: 50, usage: .unknown, symbol: "play", colorName: "green")
+        XCTAssertTrue(LocalOptimizationEngine().recommendations(for: [netflix, hulu]).isEmpty)
+    }
+
     func testValueScoreUsesReportedUsageAndImportance() {
         let lowUse = SubscriptionValueScore.calculate(monthlyCost: Money(cents: 5_999), usage: .low, isImportant: false, isTrial: false)
         let importantHighUse = SubscriptionValueScore.calculate(monthlyCost: Money(cents: 5_999), usage: .high, isImportant: true, isTrial: false)
@@ -78,6 +95,7 @@ final class SubwiseTests: XCTestCase {
         XCTAssertEqual(parser.decimalPrice(from: "1,299.00"), Decimal(string: "1299.00"))
     }
 
+    @MainActor
     func testVisionOCRExtractsFieldsFromRenderedScreenshot() async throws {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1_000, height: 1_200))
         let image = renderer.image { context in
@@ -114,5 +132,32 @@ final class SubwiseTests: XCTestCase {
         try await repository.upsertHouseholdMember(member)
         let saved = try await repository.fetchHouseholdMembers()
         XCTAssertEqual(saved, [member])
+    }
+
+    @MainActor
+    func testSwiftDataRepositoryClearsCompletedPlanAction() async throws {
+        let repository = try SwiftDataSubscriptionRepository(inMemory: true)
+        let subscriptionID = UUID()
+        let event = SavingsEvent(id: UUID(), subscriptionID: subscriptionID, action: "Review Netflix", estimatedAnnualSavings: Money(cents: 12_000), verifiedAnnualSavings: nil, status: .inProgress, completedAt: nil)
+        try await repository.saveSavingsEvent(event)
+        try await repository.deleteSavingsEvents(subscriptionID: subscriptionID, status: .inProgress)
+        let saved = try await repository.fetchSavingsEvents()
+        XCTAssertTrue(saved.isEmpty)
+    }
+
+    @MainActor
+    func testStartingSavingsPlanIsIdempotent() async throws {
+        let repository = try SwiftDataSubscriptionRepository(inMemory: true)
+        let subscription = Subscription(id: UUID(), name: "Adobe", plan: "Monthly", monthlyCost: Money(cents: 5_999), renewalText: "Sep 2", category: .productivity, status: .review, valueScore: 20, usage: .low, symbol: "scribble", colorName: "orange")
+        try await repository.upsert(subscription)
+        let store = AppStore(repository: repository)
+        await store.reload()
+
+        try await store.startSelectedSavingsPlan()
+        try await store.startSelectedSavingsPlan()
+
+        let active = try await repository.fetchSavingsEvents().filter { $0.status == .inProgress }
+        XCTAssertEqual(active.count, 1)
+        XCTAssertEqual(active.first?.subscriptionID, subscription.id)
     }
 }

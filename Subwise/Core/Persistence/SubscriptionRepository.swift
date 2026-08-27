@@ -9,6 +9,7 @@ protocol SubscriptionRepository: AnyObject {
     func replaceAll(_ subscriptions: [Subscription]) async throws
     func fetchSavingsEvents() async throws -> [SavingsEvent]
     func saveSavingsEvent(_ event: SavingsEvent) async throws
+    func deleteSavingsEvents(subscriptionID: UUID, status: SavingsEventStatus) async throws
     func fetchHouseholdMembers() async throws -> [HouseholdMember]
     func upsertHouseholdMember(_ member: HouseholdMember) async throws
     func deleteHouseholdMember(id: UUID) async throws
@@ -136,6 +137,13 @@ final class SwiftDataSubscriptionRepository: SubscriptionRepository {
 
     func saveSavingsEvent(_ event: SavingsEvent) async throws {
         context.insert(StoredSavingsEvent(event))
+        try context.save()
+    }
+
+    func deleteSavingsEvents(subscriptionID: UUID, status: SavingsEventStatus) async throws {
+        let identifier = subscriptionID
+        let statusRaw = status.rawValue
+        try context.delete(model: StoredSavingsEvent.self, where: #Predicate { $0.subscriptionID == identifier && $0.statusRaw == statusRaw })
         try context.save()
     }
 

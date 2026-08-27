@@ -60,6 +60,7 @@ nonisolated enum OpportunityKind: String, Codable, Sendable { case highImpact = 
 
 nonisolated struct SavingsOpportunity: Identifiable, Hashable, Codable, Sendable {
     let id: UUID
+    var subscriptionIDs: [UUID] = []
     var title: String
     var merchant: String
     var explanation: String
@@ -121,6 +122,11 @@ final class AppStore {
     var availableSavings: Money { opportunities.reduce(Money(cents: 0)) { $0 + $1.annualSavings } }
     var selectedSavings: Money { opportunities.filter(\.isSelected).reduce(Money(cents: 0)) { $0 + $1.annualSavings } }
     var lifetimeVerifiedSavings: Money { savingsEvents.filter { $0.status == .userVerified }.compactMap(\.verifiedAnnualSavings).reduce(Money(cents: 0), +) }
+    var activeSavingsEvents: [SavingsEvent] {
+        var seen = Set<UUID>()
+        return savingsEvents.filter { $0.status == .inProgress && seen.insert($0.subscriptionID).inserted }
+    }
+    var activePlanAnnualSavings: Money { activeSavingsEvents.reduce(Money(cents: 0)) { $0 + $1.estimatedAnnualSavings } }
     var householdMonthlySpend: Money { householdMembers.reduce(monthlySpend) { $0 + $1.monthlySpend } }
     // Household savings require service-level data shared by joined members. An invitation alone is not evidence of overlap.
     var householdInsights: [HouseholdInsight] { [] }
@@ -163,13 +169,18 @@ final class AppStore {
 
     func verifySavings(for subscription: Subscription, action: String, verifiedAnnualSavings: Money) async throws {
         let event = SavingsEvent(id: UUID(), subscriptionID: subscription.id, action: action, estimatedAnnualSavings: subscription.annualCost, verifiedAnnualSavings: verifiedAnnualSavings, status: .userVerified, completedAt: .now)
+        try await repository.deleteSavingsEvents(subscriptionID: subscription.id, status: .inProgress)
         try await repository.saveSavingsEvent(event)
         await reload()
     }
 
     func startSelectedSavingsPlan() async throws {
+        var plannedSubscriptionIDs = Set(activeSavingsEvents.map(\.subscriptionID))
         for opportunity in opportunities where opportunity.isSelected {
-            guard let subscription = subscriptions.first(where: { $0.name == opportunity.merchant }) else { continue }
+            let subscription = opportunity.subscriptionIDs.compactMap { identifier in subscriptions.first(where: { $0.id == identifier }) }.first
+                ?? subscriptions.first(where: { $0.name == opportunity.merchant })
+            guard let subscription else { continue }
+            guard plannedSubscriptionIDs.insert(subscription.id).inserted else { continue }
             let event = SavingsEvent(id: UUID(), subscriptionID: subscription.id, action: opportunity.title, estimatedAnnualSavings: opportunity.annualSavings, verifiedAnnualSavings: nil, status: .inProgress, completedAt: nil)
             try await repository.saveSavingsEvent(event)
         }
