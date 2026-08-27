@@ -140,31 +140,202 @@ struct SavingsPlanView: View {
 
 struct CancellationView: View {
     let subscription: Subscription
+    let onUpdated: (Subscription) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(AppStore.self) private var store
     @Environment(\.openURL) private var openURL
-    @State private var completed = false
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var billingSource: SubscriptionBillingSource
+    @State private var openedDestination = false
+    @State private var showingResult = false
+    @State private var showingPlanChange = false
+    @State private var newMonthlyPrice: String
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(subscription: Subscription, onUpdated: @escaping (Subscription) -> Void = { _ in }) {
+        self.subscription = subscription
+        self.onUpdated = onUpdated
+        _billingSource = State(initialValue: subscription.billingSource)
+        _newMonthlyPrice = State(initialValue: String(format: "%.2f", Double(subscription.monthlyCost.cents) / 100))
+    }
+
+    private var destination: CancellationDestination {
+        CancellationRouteResolver.destination(serviceName: subscription.name, billingSource: billingSource)
+    }
+
+    private var smartSuggestion: (title: String, detail: String, symbol: String) {
+        if let opportunity = store.opportunities.first(where: { $0.subscriptionIDs.contains(subscription.id) }) {
+            return (opportunity.title, "\(opportunity.explanation) Estimated impact: \(opportunity.annualSavings.formatted)/year.", "sparkles")
+        }
+        if subscription.isImportant || subscription.usage == .high {
+            return ("Consider a lower plan first", "You marked this service as important or high-use. Compare a cheaper tier before cancelling access.", "arrow.down.right.circle.fill")
+        }
+        if subscription.usage == .low {
+            return ("Cancellation matches your usage", "You reported low usage. Cancelling would remove \(subscription.monthlyCost.formatted) from active monthly spend.", "checkmark.seal.fill")
+        }
+        return ("Confirm value before cancelling", "Usage is not fully known. Check recent activity and whether anyone else depends on this plan.", "questionmark.circle.fill")
+    }
+
     var body: some View {
         NavigationStack { ScrollView { VStack(alignment: .leading, spacing: 18) {
-            HStack { VStack(alignment: .leading) { Text("Save \(subscription.monthlyCost.formatted)/month").font(.headline).foregroundStyle(Theme.green); Text("• \(subscription.annualCost.formatted)/year").foregroundStyle(Theme.green) }; Spacer(); Label("3 min", systemImage: "clock").font(.caption).foregroundStyle(.blue) }
-            VStack(alignment: .leading, spacing: 6) { Text("You stay in control").font(.headline); Text("We guide the process and never submit a cancellation without your approval.").font(.subheadline).foregroundStyle(.secondary) }.padding().background(Theme.mint, in: RoundedRectangle(cornerRadius: 18))
-            Text("Cancellation steps").font(.title2.bold())
-            ForEach(Array(["Open your \(subscription.name) account", "Choose Manage plan", "Review cancellation"].enumerated()), id: \.offset) { index, step in
-                HStack(alignment: .top, spacing: 12) { Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white).frame(width: 28, height: 28).background(index == 0 ? Theme.ink : Color.secondary, in: Circle()); VStack(alignment: .leading) { Text(step).font(.headline); Text(index == 0 ? "We’ll take you to the correct account page." : "Review all details before confirming.").font(.caption).foregroundStyle(.secondary) } }.padding(.vertical, 4)
+            HStack(spacing: 14) {
+                ServiceIcon(symbol: subscription.symbol, colorName: subscription.colorName, serviceName: subscription.name, size: 58)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(subscription.name).font(.title2.bold())
+                    Text(subscription.plan).font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(subscription.monthlyCost.formatted + "/mo").font(.headline)
+                    Text(subscription.annualCost.formatted + "/yr").font(.caption).foregroundStyle(.secondary)
+                }
             }
-            PrimaryButton(title: "Open \(subscription.name) cancellation help", systemImage: "arrow.up.right.square") { openCancellationHelp() }
-            Text("After you finish, return to Subwise so we can verify that the subscription no longer renews.").font(.caption).foregroundStyle(.secondary)
-        }.padding() }.navigationTitle("Cancel \(subscription.name)").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) } }
-        .confirmationDialog("Did you successfully cancel?", isPresented: $completed) {
-            Button("Yes, I cancelled") { record(action: "cancelled", savings: subscription.annualCost) }
-            Button("I changed plans instead") { record(action: "changed_plan", savings: Money(cents: 0)) }
+            .cardStyle()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label(smartSuggestion.title, systemImage: smartSuggestion.symbol).font(.headline).foregroundStyle(Theme.green)
+                Text(smartSuggestion.detail).font(.subheadline).foregroundStyle(.secondary)
+            }
+            .cardStyle()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Who bills you?").font(.headline)
+                Picker("Paid through", selection: $billingSource) {
+                    ForEach(SubscriptionBillingSource.allCases) { source in Text(source.rawValue).tag(source) }
+                }
+                .pickerStyle(.menu)
+                Text(billingSource.detail).font(.caption).foregroundStyle(.secondary)
+            }
+            .cardStyle()
+            .onChange(of: billingSource) { _, newValue in saveBillingSource(newValue) }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Label("You stay in control", systemImage: "hand.raised.fill").font(.headline)
+                Text(destination.routeDescription).font(.subheadline).foregroundStyle(.secondary)
+                Text("Subwise never receives your service password and never confirms a cancellation for you.").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding()
+            .background(Theme.mint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+            Text("Cancellation steps").font(.title2.bold())
+            ForEach(Array(destination.steps(serviceName: subscription.name).enumerated()), id: \.offset) { index, step in
+                HStack(alignment: .top, spacing: 12) {
+                    Text("\(index + 1)").font(.caption.bold()).foregroundStyle(.white).frame(width: 28, height: 28).background(index == 0 ? Theme.ink : Color.secondary, in: Circle())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(step.title).font(.headline)
+                        Text(step.detail).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).cardStyle()
+            }
+
+            PrimaryButton(title: destination.buttonTitle, systemImage: "arrow.up.right.square") { openCancellationDestination() }
+                .disabled(destination.url == nil || isSaving)
+
+            if openedDestination {
+                Button("I’m back — record the result", systemImage: "checkmark.circle") { showingResult = true }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .buttonStyle(.bordered)
+            }
+
+            Text("After you finish, return to Subwise and report the result. Only your confirmation changes the dashboard and verified savings.").font(.caption).foregroundStyle(.secondary)
+        }.padding() }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Cancel \(subscription.name)").navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) } }
+        .onChange(of: scenePhase) { oldValue, newValue in
+            if oldValue != .active, newValue == .active, openedDestination { showingResult = true }
+        }
+        .confirmationDialog("What happened with \(subscription.name)?", isPresented: $showingResult) {
+            Button("Cancelled — stop tracking spend", role: .destructive) { recordCancellation() }
+            Button("I changed to a cheaper plan") { showingPlanChange = true }
             Button("Not yet", role: .cancel) {}
+        } message: {
+            Text("Subwise relies on your confirmation because providers do not give this app permission to cancel or read another account.")
+        }
+        .alert("New monthly price", isPresented: $showingPlanChange) {
+            TextField("0.00", text: $newMonthlyPrice).keyboardType(.decimalPad)
+            Button("Save plan change") { recordPlanChange() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter the new recurring monthly price so the dashboard and verified savings use the real amount.")
         } }
     }
-    private func record(action: String, savings: Money) { Task { try? await store.verifySavings(for: subscription, action: action, verifiedAnnualSavings: savings); dismiss() } }
-    private func openCancellationHelp() {
-        var components = URLComponents(string: "https://www.google.com/search")!
-        components.queryItems = [URLQueryItem(name: "q", value: "cancel \(subscription.name) subscription official")]
-        if let url = components.url { openURL(url); completed = true }
+
+    private func openCancellationDestination() {
+        guard let url = destination.url else { return }
+        errorMessage = nil
+        openURL(url) { accepted in
+            Task { @MainActor in
+                if accepted {
+                    openedDestination = true
+                } else {
+                    errorMessage = "The secure destination could not be opened on this device."
+                }
+            }
+        }
+    }
+
+    private func saveBillingSource(_ source: SubscriptionBillingSource) {
+        var updated = subscription
+        updated.billingSource = source
+        Task {
+            do {
+                try await store.update(updated)
+                onUpdated(updated)
+            } catch {
+                errorMessage = "The billing source could not be saved."
+            }
+        }
+    }
+
+    private func recordCancellation() {
+        guard !isSaving else { return }
+        isSaving = true
+        errorMessage = nil
+        var updated = subscription
+        updated.billingSource = billingSource
+        updated.status = .cancelled
+        updated.renewalText = "Cancelled \(Date.now.formatted(date: .abbreviated, time: .omitted))"
+        Task { await persistResult(updated: updated, action: "cancelled", savings: subscription.annualCost) }
+    }
+
+    private func recordPlanChange() {
+        guard !isSaving, let decimal = TrialTextParser().decimalPrice(from: newMonthlyPrice), decimal >= 0 else {
+            errorMessage = "Enter a valid monthly price."
+            return
+        }
+        let newCost = Money(cents: NSDecimalNumber(decimal: decimal * 100).intValue)
+        guard newCost.cents < subscription.monthlyCost.cents else {
+            errorMessage = "The new price must be lower than \(subscription.monthlyCost.formatted) to record savings."
+            return
+        }
+        isSaving = true
+        errorMessage = nil
+        var updated = subscription
+        updated.billingSource = billingSource
+        updated.monthlyCost = newCost
+        updated.status = .active
+        updated.valueScore = SubscriptionValueScore.calculate(monthlyCost: newCost, usage: updated.usage, isImportant: updated.isImportant, isTrial: false)
+        let monthlySavings = max(0, subscription.monthlyCost.cents - newCost.cents)
+        Task { await persistResult(updated: updated, action: "changed_plan", savings: Money(cents: monthlySavings * 12)) }
+    }
+
+    private func persistResult(updated: Subscription, action: String, savings: Money) async {
+        do {
+            try await store.update(updated)
+            try await store.verifySavings(for: updated, action: action, verifiedAnnualSavings: savings, estimatedAnnualSavings: savings)
+            onUpdated(updated)
+            dismiss()
+        } catch {
+            isSaving = false
+            errorMessage = "The result could not be saved. Your provider account was not changed by Subwise."
+        }
     }
 }

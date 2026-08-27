@@ -18,7 +18,7 @@ nonisolated enum SubscriptionCategory: String, CaseIterable, Identifiable, Codab
     var id: Self { self }
 }
 
-nonisolated enum SubscriptionStatus: String, Codable, Sendable { case active = "Active", trial = "Trial", review = "Needs review" }
+nonisolated enum SubscriptionStatus: String, Codable, Sendable { case active = "Active", trial = "Trial", review = "Needs review", cancelled = "Cancelled" }
 
 nonisolated enum SubscriptionUsage: String, CaseIterable, Identifiable, Codable, Sendable {
     case high = "High", medium = "Medium", low = "Low", unknown = "Not reported"
@@ -36,6 +36,7 @@ nonisolated struct Subscription: Identifiable, Hashable, Codable, Sendable {
     var valueScore: Int
     var usage: SubscriptionUsage = .unknown
     var isImportant: Bool = false
+    var billingSource: SubscriptionBillingSource = .unknown
     var symbol: String
     var colorName: String
     var annualCost: Money { monthlyCost * 12 }
@@ -117,7 +118,8 @@ final class AppStore {
     convenience init() {
         self.init(repository: RepositoryFactory.make())
     }
-    var monthlySpend: Money { subscriptions.reduce(Money(cents: 0)) { $0 + $1.monthlyCost } }
+    var activeSubscriptions: [Subscription] { subscriptions.filter { $0.status != .cancelled } }
+    var monthlySpend: Money { activeSubscriptions.reduce(Money(cents: 0)) { $0 + $1.monthlyCost } }
     var annualSpend: Money { monthlySpend * 12 }
     var availableSavings: Money { opportunities.reduce(Money(cents: 0)) { $0 + $1.annualSavings } }
     var selectedSavings: Money { opportunities.filter(\.isSelected).reduce(Money(cents: 0)) { $0 + $1.annualSavings } }
@@ -159,7 +161,7 @@ final class AppStore {
             subscriptions = try await repository.fetchAll()
             savingsEvents = try await repository.fetchSavingsEvents()
             householdMembers = try await repository.fetchHouseholdMembers()
-            opportunities = optimizationEngine.recommendations(for: subscriptions)
+            opportunities = currentRecommendations()
             errorMessage = nil
         } catch {
             errorMessage = "Your saved subscriptions could not be loaded."
@@ -167,8 +169,8 @@ final class AppStore {
         isLoading = false
     }
 
-    func verifySavings(for subscription: Subscription, action: String, verifiedAnnualSavings: Money) async throws {
-        let event = SavingsEvent(id: UUID(), subscriptionID: subscription.id, action: action, estimatedAnnualSavings: subscription.annualCost, verifiedAnnualSavings: verifiedAnnualSavings, status: .userVerified, completedAt: .now)
+    func verifySavings(for subscription: Subscription, action: String, verifiedAnnualSavings: Money, estimatedAnnualSavings: Money? = nil) async throws {
+        let event = SavingsEvent(id: UUID(), subscriptionID: subscription.id, action: action, estimatedAnnualSavings: estimatedAnnualSavings ?? subscription.annualCost, verifiedAnnualSavings: verifiedAnnualSavings, status: .userVerified, completedAt: .now)
         try await repository.deleteSavingsEvents(subscriptionID: subscription.id, status: .inProgress)
         try await repository.saveSavingsEvent(event)
         await reload()
@@ -203,11 +205,21 @@ final class AppStore {
             #endif
             subscriptions = saved
             savingsEvents = try await repository.fetchSavingsEvents()
-            opportunities = optimizationEngine.recommendations(for: saved)
+            opportunities = currentRecommendations()
             householdMembers = try await repository.fetchHouseholdMembers()
         } catch {
             errorMessage = "Subwise could not open its private local database."
         }
         isLoading = false
+    }
+
+    private func currentRecommendations() -> [SavingsOpportunity] {
+        let resolvedSubscriptionIDs = Set(savingsEvents.compactMap { event in
+            event.status == .userVerified ? event.subscriptionID : nil
+        })
+        return optimizationEngine.recommendations(for: activeSubscriptions).filter { opportunity in
+            guard let primarySubscriptionID = opportunity.subscriptionIDs.first else { return true }
+            return !resolvedSubscriptionIDs.contains(primarySubscriptionID)
+        }
     }
 }

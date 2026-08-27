@@ -7,8 +7,14 @@ struct SubscriptionsView: View {
     @State private var showingAdd = false
     @State private var showingImport = false
     init(category: Binding<SubscriptionCategory?> = .constant(nil)) { _category = category }
-    private var filtered: [Subscription] {
-        store.subscriptions.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && (category == nil || $0.category == category) }
+    private var filteredActive: [Subscription] {
+        store.activeSubscriptions.filter(matchesFilters)
+    }
+    private var filteredCancelled: [Subscription] {
+        store.subscriptions.filter { $0.status == .cancelled && matchesFilters($0) }
+    }
+    private func matchesFilters(_ subscription: Subscription) -> Bool {
+        (search.isEmpty || subscription.name.localizedCaseInsensitiveContains(search)) && (category == nil || subscription.category == category)
     }
     var body: some View {
         NavigationStack {
@@ -21,14 +27,21 @@ struct SubscriptionsView: View {
                         HStack { FilterChip(title: "All", selected: category == nil) { category = nil }; ForEach(SubscriptionCategory.allCases) { item in FilterChip(title: item.rawValue, selected: category == item) { category = item } } }
                     }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                 }
-                Section("\(filtered.count) active subscriptions") {
-                    ForEach(filtered) { subscription in NavigationLink(value: subscription) { SubscriptionRow(subscription: subscription) } }
+                Section("\(filteredActive.count) active subscriptions") {
+                    ForEach(filteredActive) { subscription in NavigationLink(value: subscription) { SubscriptionRow(subscription: subscription) } }
                         .onDelete { offsets in
                             for index in offsets {
-                                let id = filtered[index].id
+                                let id = filteredActive[index].id
                                 Task { try? await store.remove(id: id) }
                             }
                         }
+                }
+                if !filteredCancelled.isEmpty {
+                    Section("Cancelled history") {
+                        ForEach(filteredCancelled) { subscription in
+                            NavigationLink(value: subscription) { SubscriptionRow(subscription: subscription) }
+                        }
+                    }
                 }
             }.listStyle(.insetGrouped).navigationTitle("Subscriptions").searchable(text: $search, prompt: "Search subscriptions")
             .navigationDestination(for: Subscription.self) { SubscriptionDetailView(subscription: $0) }
@@ -69,12 +82,18 @@ struct SubscriptionDetailView: View {
                 Label(subscription.status.rawValue, systemImage: "checkmark.circle")
                 Text("Value Score is an estimate based on cost and the information you provide—not objective financial advice.").font(.caption).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity, alignment: .leading).cardStyle()
-            VStack(alignment: .leading, spacing: 12) { Text("Subscription details").font(.headline); LabeledContent("Next renewal", value: subscription.renewalText.replacingOccurrences(of: "Renews ", with: "")); LabeledContent("Plan", value: subscription.plan); LabeledContent("Category", value: subscription.category.rawValue); LabeledContent("Status", value: subscription.status.rawValue) }.cardStyle()
+            VStack(alignment: .leading, spacing: 12) { Text("Subscription details").font(.headline); LabeledContent("Next renewal", value: subscription.renewalText.replacingOccurrences(of: "Renews ", with: "")); LabeledContent("Plan", value: subscription.plan); LabeledContent("Category", value: subscription.category.rawValue); LabeledContent("Paid through", value: subscription.billingSource.rawValue); LabeledContent("Status", value: subscription.status.rawValue) }.cardStyle()
             if let statusMessage { Label(statusMessage, systemImage: "checkmark.seal.fill").foregroundStyle(Theme.green).cardStyle() }
-            PrimaryButton(title: "Review cancellation options", systemImage: "arrow.right") { showingCancellation = true }
-            Button("Keep this subscription", systemImage: "heart.fill") { keep() }.frame(minHeight: 44)
+            if subscription.status != .cancelled {
+                PrimaryButton(title: "Review cancellation options", systemImage: "arrow.right") { showingCancellation = true }
+                Button("Keep this subscription", systemImage: "heart.fill") { keep() }.frame(minHeight: 44)
+            } else {
+                Label("Cancellation recorded. This cost is excluded from your active spend.", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(Theme.green)
+                    .cardStyle()
+            }
         }.padding() }.background(Color(.systemGroupedBackground)).navigationTitle(subscription.name).navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingCancellation) { CancellationView(subscription: subscription) }
+        .sheet(isPresented: $showingCancellation) { CancellationView(subscription: subscription) { subscription = $0 } }
         .sheet(isPresented: $showingEdit) { EditSubscriptionView(subscription: subscription) { subscription = $0 } }
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Edit", systemImage: "pencil") { showingEdit = true }.labelStyle(.iconOnly) } }
     }
@@ -107,10 +126,16 @@ private struct EditSubscriptionView: View {
         NavigationStack {
             Form {
                 Section("Service") { TextField("Name", text: $value.name); TextField("Plan", text: $value.plan); TextField("Monthly price", text: $price).keyboardType(.decimalPad) }
+                Section("Billing") {
+                    Picker("Paid through", selection: $value.billingSource) {
+                        ForEach(SubscriptionBillingSource.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    Text(value.billingSource.detail).font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("Classification") {
                     Picker("Category", selection: $value.category) { ForEach(SubscriptionCategory.allCases) { Text($0.rawValue).tag($0) } }
                     Picker("Usage", selection: $value.usage) { ForEach(SubscriptionUsage.allCases) { Text($0.rawValue).tag($0) } }
-                    Picker("Status", selection: $value.status) { Text("Active").tag(SubscriptionStatus.active); Text("Trial").tag(SubscriptionStatus.trial); Text("Needs review").tag(SubscriptionStatus.review) }
+                    Picker("Status", selection: $value.status) { Text("Active").tag(SubscriptionStatus.active); Text("Trial").tag(SubscriptionStatus.trial); Text("Needs review").tag(SubscriptionStatus.review); Text("Cancelled").tag(SubscriptionStatus.cancelled) }
                     Toggle("Important to keep", isOn: $value.isImportant)
                     LabeledContent("Calculated Value Score", value: "\(calculatedScore)/100")
                     Text("The score is calculated from the price, usage you report, importance, and trial status.").font(.footnote).foregroundStyle(.secondary)
@@ -146,8 +171,9 @@ struct AddSubscriptionView: View {
     @State private var category: SubscriptionCategory = .other
     @State private var usage: SubscriptionUsage = .unknown
     @State private var isImportant = false
+    @State private var billingSource: SubscriptionBillingSource = .unknown
     var body: some View {
-        NavigationStack { Form { Section("Service") { TextField("Subscription name", text: $name); TextField("Monthly price", text: $price).keyboardType(.decimalPad); Picker("Category", selection: $category) { ForEach(SubscriptionCategory.allCases) { Text($0.rawValue).tag($0) } }; Picker("Usage", selection: $usage) { ForEach(SubscriptionUsage.allCases) { Text($0.rawValue).tag($0) } }; Toggle("Important to keep", isOn: $isImportant) }; Section { Label("Usage and importance create a calculated Value Score and evidence-based suggestions.", systemImage: "function").font(.footnote).foregroundStyle(.secondary) } }
+        NavigationStack { Form { Section("Service") { TextField("Subscription name", text: $name); TextField("Monthly price", text: $price).keyboardType(.decimalPad); Picker("Category", selection: $category) { ForEach(SubscriptionCategory.allCases) { Text($0.rawValue).tag($0) } }; Picker("Usage", selection: $usage) { ForEach(SubscriptionUsage.allCases) { Text($0.rawValue).tag($0) } }; Toggle("Important to keep", isOn: $isImportant) }; Section("Billing") { Picker("Paid through", selection: $billingSource) { ForEach(SubscriptionBillingSource.allCases) { Text($0.rawValue).tag($0) } }; Text(billingSource.detail).font(.footnote).foregroundStyle(.secondary) }; Section { Label("Usage and importance create a calculated Value Score and evidence-based suggestions.", systemImage: "function").font(.footnote).foregroundStyle(.secondary) } }
             .navigationTitle("New Subscription").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) }; ToolbarItem(placement: .confirmationAction) { Button("Save", systemImage: "checkmark") { save() }.labelStyle(.iconOnly).disabled(name.isEmpty || Decimal(string: price) == nil) } }
         }
     }
@@ -155,7 +181,7 @@ struct AddSubscriptionView: View {
         guard let decimal = Decimal(string: price) else { return }
         let cost = Money(cents: NSDecimalNumber(decimal: decimal * 100).intValue)
         let score = SubscriptionValueScore.calculate(monthlyCost: cost, usage: usage, isImportant: isImportant, isTrial: false)
-        let subscription = Subscription(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines), plan: "Monthly", monthlyCost: cost, renewalText: "Renewal date needed", category: category, status: .active, valueScore: score, usage: usage, isImportant: isImportant, symbol: "square.grid.2x2.fill", colorName: "teal")
+        let subscription = Subscription(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines), plan: "Monthly", monthlyCost: cost, renewalText: "Renewal date needed", category: category, status: .active, valueScore: score, usage: usage, isImportant: isImportant, billingSource: billingSource, symbol: "square.grid.2x2.fill", colorName: "teal")
         Task {
             try? await store.add(subscription)
             dismiss()

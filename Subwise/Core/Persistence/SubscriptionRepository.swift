@@ -66,6 +66,7 @@ final class StoredSubscription {
     var valueScore: Int
     var usageRaw: String = SubscriptionUsage.unknown.rawValue
     var isImportant: Bool = false
+    var billingSourceRaw: String = SubscriptionBillingSource.unknown.rawValue
     var symbol: String
     var colorName: String
     var updatedAt: Date
@@ -74,13 +75,14 @@ final class StoredSubscription {
         id = value.id; name = value.name; plan = value.plan; monthlyCents = value.monthlyCost.cents
         renewalText = value.renewalText; categoryRaw = value.category.rawValue; statusRaw = value.status.rawValue
         valueScore = value.valueScore; usageRaw = value.usage.rawValue; isImportant = value.isImportant
+        billingSourceRaw = value.billingSource.rawValue
         symbol = value.symbol; colorName = value.colorName; updatedAt = .now
     }
 
     func update(from value: Subscription) {
         name = value.name; plan = value.plan; monthlyCents = value.monthlyCost.cents; renewalText = value.renewalText
         categoryRaw = value.category.rawValue; statusRaw = value.status.rawValue; valueScore = value.valueScore
-        usageRaw = value.usage.rawValue; isImportant = value.isImportant
+        usageRaw = value.usage.rawValue; isImportant = value.isImportant; billingSourceRaw = value.billingSource.rawValue
         symbol = value.symbol; colorName = value.colorName; updatedAt = .now
     }
 
@@ -89,7 +91,8 @@ final class StoredSubscription {
                      category: SubscriptionCategory(rawValue: categoryRaw) ?? .other,
                      status: SubscriptionStatus(rawValue: statusRaw) ?? .review,
                      valueScore: valueScore, usage: SubscriptionUsage(rawValue: usageRaw) ?? .unknown,
-                     isImportant: isImportant, symbol: symbol, colorName: colorName)
+                     isImportant: isImportant, billingSource: SubscriptionBillingSource(rawValue: billingSourceRaw) ?? .unknown,
+                     symbol: symbol, colorName: colorName)
     }
 }
 

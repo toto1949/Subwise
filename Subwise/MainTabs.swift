@@ -62,8 +62,8 @@ struct HomeView: View {
                         DashboardMetric(value: savingsRate.formatted(.percent.precision(.fractionLength(0))), label: "Savings rate", systemImage: "chart.line.uptrend.xyaxis") { selection = 2 }
                             .dashboardEntrance(hasAppeared, index: 3, reduceMotion: reduceMotion)
                     }
-                    if !store.subscriptions.isEmpty {
-                        CategorySpendCard(subscriptions: store.subscriptions) { category in
+                    if !store.activeSubscriptions.isEmpty {
+                        CategorySpendCard(subscriptions: store.activeSubscriptions) { category in
                             selectedCategory = category
                             selection = 1
                         }
@@ -75,12 +75,12 @@ struct HomeView: View {
                     }
                     HStack { Text("Upcoming").font(.title2.bold()); Spacer(); Button("See all") { selection = 1 }.font(.subheadline.bold()) }
                     if store.isLoading { ProgressView("Loading subscriptions…").frame(maxWidth: .infinity).cardStyle() }
-                    else if store.subscriptions.isEmpty { ContentUnavailableView("No subscriptions", systemImage: "creditcard", description: Text("Add one manually or import a trial screenshot.")).cardStyle() }
+                    else if store.activeSubscriptions.isEmpty { ContentUnavailableView("No active subscriptions", systemImage: "creditcard", description: Text("Add one manually or import a trial screenshot. Cancelled services remain in history.")).cardStyle() }
                     else {
                         VStack(spacing: 0) {
-                            ForEach(Array(store.subscriptions.prefix(3).enumerated()), id: \.element.id) { index, subscription in
+                            ForEach(Array(store.activeSubscriptions.prefix(3).enumerated()), id: \.element.id) { index, subscription in
                                 NavigationLink(value: subscription) { SubscriptionRow(subscription: subscription) }.buttonStyle(.plain)
-                                if index < min(2, store.subscriptions.count - 1) { Divider().padding(.leading, 60) }
+                                if index < min(2, store.activeSubscriptions.count - 1) { Divider().padding(.leading, 60) }
                             }
                         }.cardStyle()
                     }

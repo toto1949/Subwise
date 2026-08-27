@@ -17,6 +17,24 @@ final class SubwiseTests: XCTestCase {
         XCTAssertEqual(Money(cents: 1199) + Money(cents: 2499), Money(cents: 3698))
     }
 
+    func testCancellationResolverUsesAppleAccountForAppleBilledService() throws {
+        let destination = CancellationRouteResolver.destination(serviceName: "Netflix", billingSource: .appStore)
+        XCTAssertEqual(destination.url, URL(string: "https://apps.apple.com/account/subscriptions"))
+        guard case .appleSubscriptions = destination else { return XCTFail("Expected Apple subscriptions route") }
+    }
+
+    func testCancellationResolverUsesVerifiedProviderRoute() throws {
+        let destination = CancellationRouteResolver.destination(serviceName: "Netflix Premium", billingSource: .serviceWebsite)
+        XCTAssertEqual(destination.url, URL(string: "https://www.netflix.com/cancelplan"))
+        guard case .provider(let provider) = destination else { return XCTFail("Expected provider route") }
+        XCTAssertEqual(provider.name, "Netflix")
+    }
+
+    func testCancellationResolverRequiresBillingSourceAndRejectsUnknownProvider() {
+        XCTAssertEqual(CancellationRouteResolver.destination(serviceName: "Netflix", billingSource: .unknown), .needsBillingSource)
+        XCTAssertEqual(CancellationRouteResolver.destination(serviceName: "Local Gym", billingSource: .serviceWebsite), .unavailable)
+    }
+
     func testOptimizationRanksHighImpactSavings() {
         let adobe = Subscription(id: UUID(), name: "Adobe", plan: "Creative Cloud", monthlyCost: Money(cents: 5999), renewalText: "Sep 2", category: .productivity, status: .review, valueScore: 31, symbol: "scribble", colorName: "orange")
         let netflix = Subscription(id: UUID(), name: "Netflix", plan: "Premium", monthlyCost: Money(cents: 2499), renewalText: "Aug 29", category: .streaming, status: .active, valueScore: 80, symbol: "play", colorName: "blue")
@@ -65,6 +83,11 @@ final class SubwiseTests: XCTestCase {
     func testOptimizationNeverSuggestsCancellingImportantSubscription() {
         let subscription = Subscription(id: UUID(), name: "Essential", plan: "Monthly", monthlyCost: Money(cents: 5_999), renewalText: "Tomorrow", category: .productivity, status: .review, valueScore: 10, usage: .low, isImportant: true, symbol: "star", colorName: "yellow")
         XCTAssertTrue(LocalOptimizationEngine().recommendations(for: [subscription]).isEmpty)
+    }
+
+    func testCancelledSubscriptionIsExcludedFromOptimization() {
+        let cancelled = Subscription(id: UUID(), name: "Adobe", plan: "Monthly", monthlyCost: Money(cents: 5_999), renewalText: "Cancelled", category: .productivity, status: .cancelled, valueScore: 10, usage: .low, billingSource: .serviceWebsite, symbol: "scribble", colorName: "orange")
+        XCTAssertTrue(LocalOptimizationEngine().recommendations(for: [cancelled]).isEmpty)
     }
 
     func testOCRParserExtractsCandidateForReview() {
@@ -119,7 +142,7 @@ final class SubwiseTests: XCTestCase {
     @MainActor
     func testSwiftDataRepositoryPersistsSubscriptions() async throws {
         let repository = try SwiftDataSubscriptionRepository(inMemory: true)
-        let item = Subscription(id: UUID(), name: "Test", plan: "Monthly", monthlyCost: Money(cents: 999), renewalText: "Tomorrow", category: .other, status: .active, valueScore: 50, symbol: "square", colorName: "teal")
+        let item = Subscription(id: UUID(), name: "Test", plan: "Monthly", monthlyCost: Money(cents: 999), renewalText: "Tomorrow", category: .other, status: .active, valueScore: 50, billingSource: .serviceWebsite, symbol: "square", colorName: "teal")
         try await repository.upsert(item)
         let saved = try await repository.fetchAll()
         XCTAssertEqual(saved, [item])
@@ -159,5 +182,22 @@ final class SubwiseTests: XCTestCase {
         let active = try await repository.fetchSavingsEvents().filter { $0.status == .inProgress }
         XCTAssertEqual(active.count, 1)
         XCTAssertEqual(active.first?.subscriptionID, subscription.id)
+    }
+
+    @MainActor
+    func testVerifiedPlanChangeUsesRealSavingsAndResolvesSuggestion() async throws {
+        let repository = try SwiftDataSubscriptionRepository(inMemory: true)
+        let subscription = Subscription(id: UUID(), name: "Adobe", plan: "Monthly", monthlyCost: Money(cents: 5_999), renewalText: "Sep 2", category: .productivity, status: .review, valueScore: 20, usage: .low, billingSource: .serviceWebsite, symbol: "scribble", colorName: "orange")
+        try await repository.upsert(subscription)
+        let store = AppStore(repository: repository)
+        await store.reload()
+        XCTAssertEqual(store.opportunities.count, 1)
+
+        let realSavings = Money(cents: 12_000)
+        try await store.verifySavings(for: subscription, action: "changed_plan", verifiedAnnualSavings: realSavings, estimatedAnnualSavings: realSavings)
+
+        XCTAssertTrue(store.opportunities.isEmpty)
+        XCTAssertEqual(store.savingsEvents.first?.estimatedAnnualSavings, realSavings)
+        XCTAssertEqual(store.savingsEvents.first?.verifiedAnnualSavings, realSavings)
     }
 }

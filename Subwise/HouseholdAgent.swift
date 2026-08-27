@@ -140,7 +140,7 @@ struct AgentView: View {
                 if messages.count == 1, canUseAgent {
                     VStack(spacing: 10) {
                         PromptButton("Build my \(Money(cents: Int(monthlyGoal * 100)).formatted)/mo plan") { ask("Build a realistic plan toward my \(Money(cents: Int(monthlyGoal * 100)).formatted) monthly savings goal.") }
-                        if let highestCost = store.subscriptions.max(by: { $0.monthlyCost.cents < $1.monthlyCost.cents }) { PromptButton("Review \(highestCost.name)") { ask("Should I keep, change, or cancel \(highestCost.name) based on my saved usage and priorities?") } }
+                        if let highestCost = store.activeSubscriptions.max(by: { $0.monthlyCost.cents < $1.monthlyCost.cents }) { PromptButton("Review \(highestCost.name)") { ask("Should I keep, change, or cancel \(highestCost.name) based on my saved usage and priorities?") } }
                         PromptButton("What renews soon?") { ask("Which of my saved subscriptions should I review first, and why?") }
                     }.padding()
                 }
@@ -193,9 +193,9 @@ struct AgentView: View {
             do {
                 let reply: AgentReply
                 if account.state == .authenticated {
-                    reply = try await SavingsAgentService.shared.send(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.subscriptions)
+                    reply = try await SavingsAgentService.shared.send(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.activeSubscriptions)
                 } else {
-                    reply = LocalSavingsAgent.reply(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.subscriptions)
+                    reply = LocalSavingsAgent.reply(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.activeSubscriptions)
                 }
                 conversationID = reply.conversationId
                 let recommendedIDs = reply.recommendedSubscriptionIds.compactMap(UUID.init(uuidString:))
@@ -232,7 +232,7 @@ struct AgentView: View {
                     // with deterministic demo guidance. Keep the failure visible and retryable.
                     messages.append(.init(isUser: false, text: "The Savings Agent could not complete this request (\(detail)). Check your connection and try again."))
                 } else {
-                    let fallback = LocalSavingsAgent.reply(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.subscriptions)
+                    let fallback = LocalSavingsAgent.reply(message: clean, conversationId: conversationID, monthlySavingsGoalCents: Int(monthlyGoal * 100), subscriptions: store.activeSubscriptions)
                     conversationID = fallback.conversationId
                     messages.append(.init(isUser: false, text: "On-device guidance (\(detail)):\n\n\(fallback.answer)\n\n\(fallback.disclaimer)"))
                 }

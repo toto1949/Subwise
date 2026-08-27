@@ -9,8 +9,9 @@ nonisolated struct LocalOptimizationEngine: OptimizationEngine {
     func recommendations(for subscriptions: [Subscription]) -> [SavingsOpportunity] {
         var results: [SavingsOpportunity] = []
         var recommendedSubscriptionIDs = Set<UUID>()
+        let activeSubscriptions = subscriptions.filter { $0.status != .cancelled }
 
-        let merchantGroups = Dictionary(grouping: subscriptions, by: { normalizedMerchant($0.name) })
+        let merchantGroups = Dictionary(grouping: activeSubscriptions, by: { normalizedMerchant($0.name) })
         for (merchantKey, matches) in merchantGroups where !merchantKey.isEmpty && matches.count > 1 {
             guard let candidate = reviewCandidate(from: matches) else { continue }
             let orderedIDs = [candidate.id] + matches.map(\.id).filter { $0 != candidate.id }
@@ -29,13 +30,13 @@ nonisolated struct LocalOptimizationEngine: OptimizationEngine {
             recommendedSubscriptionIDs.insert(candidate.id)
         }
 
-        for subscription in subscriptions where !recommendedSubscriptionIDs.contains(subscription.id) {
+        for subscription in activeSubscriptions where !recommendedSubscriptionIDs.contains(subscription.id) {
             guard let recommendation = lowValueRecommendation(subscription) else { continue }
             results.append(recommendation)
             recommendedSubscriptionIDs.insert(subscription.id)
         }
 
-        let categoryGroups = Dictionary(grouping: subscriptions, by: \.category)
+        let categoryGroups = Dictionary(grouping: activeSubscriptions, by: \.category)
         for (category, matches) in categoryGroups where matches.count > 1 {
             let distinctMerchants = Set(matches.map { normalizedMerchant($0.name) })
             guard distinctMerchants.count > 1 else { continue }
