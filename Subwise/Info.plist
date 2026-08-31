@@ -4,6 +4,8 @@
 <dict>
 	<key>NSFinancialDataUsageDescription</key>
 	<string>SubWise uses the financial accounts you choose in Wallet to find recurring subscription charges and show savings opportunities.</string>
+	<key>SUBWISE_FINANCEKIT_ENABLED</key>
+	<true/>
 	<key>SUBWISE_API_BASE_URL</key>
 	<string>$(SUBWISE_API_BASE_URL)</string>
 </dict>

@@ -19,6 +19,7 @@ import agentRoutes from "./routes/agent.js";
 import trialRoutes from "./routes/trials.js";
 import cancellationRoutes from "./routes/cancellation.js";
 import discoveryRoutes from "./routes/discovery.js";
+import legalRoutes from "./routes/legal.js";
 
 declare module "fastify" { interface FastifyInstance { config: Config } }
 
@@ -38,6 +39,7 @@ export function buildApp(config: Config) {
     applinks: { details: [{ appIDs: ["3K82B6HTAT.com.toto.Subwise"], components: [{ "/": "/plaid/*", comment: "Plaid OAuth return links" }] }] }
   }));
   app.get("/plaid/oauth", async (_request, reply) => reply.type("text/html").send("<!doctype html><meta name='viewport' content='width=device-width'><title>Return to SubWise</title><main style='font:16px -apple-system;padding:40px;max-width:520px;margin:auto'><h1>Return to SubWise</h1><p>Your bank connection can continue in the SubWise app.</p></main>"));
+  app.register(legalRoutes);
   app.register(async (api) => {
     await api.register(authRoutes);
     await api.register(userRoutes);

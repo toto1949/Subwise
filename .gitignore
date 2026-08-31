@@ -6,3 +6,5 @@ backend/.env
 xcuserdata/
 DerivedData/
 *.mobileprovision
+.vercel
+.env.local

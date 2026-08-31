@@ -12,5 +12,7 @@
 	<array>
 		<string>applinks:subwise-api.vercel.app</string>
 	</array>
+	<key>com.apple.developer.financekit.transaction-picker</key>
+	<true/>
 </dict>
 </plist>

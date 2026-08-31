@@ -41,6 +41,12 @@ final class SubwiseTests: XCTestCase {
         XCTAssertTrue(SubscriptionDetectionService.detect(in: Array(transactions.prefix(1)), source: .financeKit).isEmpty)
     }
 
+    @MainActor
+    func testFinanceKitRemainsUnavailableWithoutManagedCapability() {
+        let service = FinanceKitService(capabilityEnabled: false)
+        XCTAssertEqual(service.readiness, .capabilityMissing)
+    }
+
     func testCancellationResolverUsesAppleAccountForAppleBilledService() throws {
         let destination = CancellationRouteResolver.destination(serviceName: "Netflix", billingSource: .appStore)
         XCTAssertEqual(destination.url, URL(string: "https://apps.apple.com/account/subscriptions"))

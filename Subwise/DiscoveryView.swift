@@ -3,6 +3,10 @@ import UIKit
 #if canImport(LinkKit)
 import LinkKit
 #endif
+#if canImport(FinanceKit) && canImport(FinanceKitUI)
+import FinanceKit
+import FinanceKitUI
+#endif
 
 struct SubscriptionDiscoveryView: View {
     @SwiftUI.Environment(\.dismiss) private var dismiss
@@ -10,8 +14,8 @@ struct SubscriptionDiscoveryView: View {
     @State private var showingManual = false
     @State private var showingScreenshot = false
     @State private var walletCandidates: [DetectedSubscriptionCandidate] = []
-    @State private var isReadingWallet = false
     @State private var walletError: String?
+    private let financeKit = FinanceKitService()
 
     var body: some View {
         NavigationStack {
@@ -28,13 +32,7 @@ struct SubscriptionDiscoveryView: View {
                         symbol: "building.columns.fill", tint: Theme.green, actionTitle: "Connect account"
                     ) { PlaidConnectionView() }
 
-                    Button { readWallet() } label: {
-                        DiscoveryCardContent(
-                            title: "Apple Card & Wallet", description: "Use the transaction history you choose in Wallet to identify recurring charges.",
-                            symbol: "wallet.bifold.fill", tint: Theme.sky, actionTitle: isReadingWallet ? "Reading Wallet…" : "Connect Apple Wallet"
-                        )
-                    }
-                    .buttonStyle(.plain).disabled(isReadingWallet)
+                    walletDiscoveryCard
 
                     VStack(alignment: .leading, spacing: 14) {
                         DiscoveryCardContent(
@@ -70,18 +68,86 @@ struct SubscriptionDiscoveryView: View {
         }
     }
 
-    private func readWallet() {
-        isReadingWallet = true; walletError = nil
-        Task {
-            do {
-                let result = try await FinanceKitService().discover()
-                if result.isEmpty { walletError = "No recurring subscription pattern was found yet. SubWise requires at least two matching charges." }
-                else { walletCandidates = result }
-            } catch { walletError = error.localizedDescription }
-            isReadingWallet = false
+    @ViewBuilder private var walletDiscoveryCard: some View {
+        #if canImport(FinanceKit) && canImport(FinanceKitUI)
+        if #available(iOS 18, *), financeKit.readiness == .ready {
+            WalletTransactionPickerCard(financeKit: financeKit, description: walletDescription, actionTitle: walletActionTitle) { candidates, error in
+                walletError = error
+                if !candidates.isEmpty { walletCandidates = candidates }
+            }
+        } else {
+            walletUnavailableButton
+        }
+        #else
+        walletUnavailableButton
+        #endif
+    }
+
+    private var walletUnavailableButton: some View {
+        Button {
+            walletError = financeKit.readiness == .capabilityMissing
+                ? FinanceKitDiscoveryError.capabilityMissing.localizedDescription
+                : FinanceKitDiscoveryError.unavailable.localizedDescription
+        } label: {
+            DiscoveryCardContent(
+                title: "Apple Card & Wallet", description: walletDescription,
+                symbol: "wallet.bifold.fill", tint: Theme.sky, actionTitle: walletActionTitle
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var walletDescription: String {
+        switch financeKit.readiness {
+        case .ready:
+            "Choose at least two matching charges for each service. SubWise analyzes only the Wallet transactions you select."
+        case .unavailable:
+            "Apple’s Wallet transaction picker requires iOS 18 or later. You can still connect a bank, import a screenshot, or add manually."
+        case .capabilityMissing:
+            "This build does not include Apple’s approved Wallet transaction picker. Bank connection, screenshot import, and manual entry remain available."
+        }
+    }
+
+    private var walletActionTitle: String {
+        switch financeKit.readiness {
+        case .ready: "Select Wallet transactions"
+        case .unavailable: "See other options"
+        case .capabilityMissing: "Wallet access unavailable"
+        }
+    }
+
+}
+
+#if canImport(FinanceKit) && canImport(FinanceKitUI)
+@available(iOS 18, *)
+private struct WalletTransactionPickerCard: View {
+    let financeKit: FinanceKitService
+    let description: String
+    let actionTitle: String
+    let onSelection: ([DetectedSubscriptionCandidate], String?) -> Void
+    @State private var transactions: [FinanceKit.Transaction] = []
+
+    var body: some View {
+        TransactionPicker(selection: $transactions) {
+            DiscoveryCardContent(
+                title: "Apple Card & Wallet", description: description,
+                symbol: "wallet.bifold.fill", tint: Theme.sky, actionTitle: actionTitle
+            )
+        }
+        .buttonStyle(.plain)
+        .onChange(of: transactions) { _, selected in
+            guard !selected.isEmpty else { return }
+            let candidates = financeKit.candidates(from: selected)
+            if candidates.isEmpty {
+                onSelection([], "No recurring pattern was found in that selection. Choose at least two matching debit charges for each subscription.")
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                onSelection(candidates, nil)
+            }
         }
     }
 }
+#endif
 
 private struct DiscoverySourceCard<Destination: View>: View {
     let title: String, description: String, symbol: String

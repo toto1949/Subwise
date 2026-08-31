@@ -4,51 +4,72 @@ import FinanceKit
 #endif
 
 enum FinanceKitDiscoveryError: LocalizedError {
-    case unavailable, authorizationDenied, capabilityMissing
+    case unavailable, capabilityMissing
     var errorDescription: String? {
         switch self {
         case .unavailable: "Apple Wallet financial data is not available on this device or account."
-        case .authorizationDenied: "Apple Wallet access was not granted. You can try again from Settings."
-        case .capabilityMissing: "FinanceKit access requires Apple’s managed entitlement before this build can connect Wallet data."
+        case .capabilityMissing: "This build does not include Apple’s FinanceKit transaction-picker capability."
         }
     }
 }
 
+enum FinanceKitReadiness: Equatable {
+    case ready
+    case unavailable
+    case capabilityMissing
+}
+
 struct FinanceKitService {
-    var isAvailable: Bool {
-        #if canImport(FinanceKit)
-        if #available(iOS 17.4, *) { return FinanceStore.isDataAvailable(.financialData) }
-        #endif
-        return false
+    private let capabilityEnabled: Bool
+
+    init(capabilityEnabled: Bool = FinanceKitBuildConfiguration.isEnabled) {
+        self.capabilityEnabled = capabilityEnabled
     }
 
-    func discover() async throws -> [DetectedSubscriptionCandidate] {
+    var readiness: FinanceKitReadiness {
+        // The approved managed capability is the FinanceKit transaction picker. It lets
+        // the person explicitly choose transactions without granting unrestricted store
+        // access. Keep the build gate ahead of every FinanceKitUI entry point.
+        guard capabilityEnabled else { return .capabilityMissing }
         #if canImport(FinanceKit)
-        if #available(iOS 17.4, *) {
-            guard FinanceStore.isDataAvailable(.financialData) else { throw FinanceKitDiscoveryError.unavailable }
-            do {
-                let status = try await FinanceStore.shared.requestAuthorization()
-                guard status == .authorized else { throw FinanceKitDiscoveryError.authorizationDenied }
-                let query = TransactionQuery(sortDescriptors: [SortDescriptor(\Transaction.transactionDate, order: .reverse)], predicate: nil, limit: 2_000, offset: nil)
-                let transactions = try await FinanceStore.shared.transactions(query: query)
-                let values = transactions.filter { $0.creditDebitIndicator == .debit }.map { transaction in
-                    DiscoveryTransaction(
-                        id: transaction.id.uuidString,
-                        rawMerchantName: transaction.originalTransactionDescription,
-                        merchantName: transaction.merchantName,
-                        amount: Money(cents: NSDecimalNumber(decimal: transaction.transactionAmount.amount * 100).intValue),
-                        date: transaction.postedDate ?? transaction.transactionDate,
-                        paymentMethod: "Apple Wallet"
-                    )
-                }
-                return SubscriptionDetectionService.detect(in: values, source: .financeKit)
-            } catch let error as FinanceKitDiscoveryError { throw error }
-            catch {
-                // Missing managed entitlement is the usual cause when the API exists but authorization cannot start.
-                throw FinanceKitDiscoveryError.capabilityMissing
-            }
-        }
+        if #available(iOS 18, *) { return .ready }
         #endif
-        throw FinanceKitDiscoveryError.unavailable
+        return .unavailable
+    }
+
+    var isAvailable: Bool {
+        readiness == .ready
+    }
+
+    #if canImport(FinanceKit)
+    @available(iOS 17.4, *)
+    func candidates(from transactions: [Transaction]) -> [DetectedSubscriptionCandidate] {
+        let values = transactions
+            .filter { $0.creditDebitIndicator == .debit }
+            .map { transaction in
+                DiscoveryTransaction(
+                    id: transaction.id.uuidString,
+                    rawMerchantName: transaction.originalTransactionDescription,
+                    merchantName: transaction.merchantName,
+                    amount: Money(cents: NSDecimalNumber(decimal: transaction.transactionAmount.amount * 100).intValue),
+                    date: transaction.postedDate ?? transaction.transactionDate,
+                    paymentMethod: "Apple Wallet"
+                )
+            }
+        return SubscriptionDetectionService.detect(in: values, source: .financeKit)
+    }
+    #endif
+}
+
+private enum FinanceKitBuildConfiguration {
+    static var isEnabled: Bool {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "SUBWISE_FINANCEKIT_ENABLED") else {
+            return false
+        }
+        if let number = value as? NSNumber { return number.boolValue }
+        if let string = value as? String {
+            return ["1", "true", "yes"].contains(string.lowercased())
+        }
+        return false
     }
 }

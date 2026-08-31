@@ -458,6 +458,9 @@ struct SettingsView: View {
                     NavigationLink { AIProcessingSettingsView() } label: { Label("AI processing", systemImage: "sparkles") }
                     NavigationLink { HouseholdSharingSettingsView() } label: { Label("Household sharing", systemImage: "person.2") }
                     NavigationLink { ExportDataView() } label: { Label("Export my data", systemImage: "square.and.arrow.up") }
+                    Link(destination: URL(string: "https://subwise-api.vercel.app/privacy-policy")!) {
+                        Label("Privacy policy", systemImage: "hand.raised")
+                    }
                 }
                 Section { Button("Replay onboarding") { hasCompletedOnboarding = false; dismiss() } }
                 Section { Button("Sign out", role: .destructive) { Task { await account.signOut(); dismiss() } } }
