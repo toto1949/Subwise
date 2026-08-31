@@ -78,6 +78,18 @@ nonisolated enum SubscriptionDetectionService {
         return groups.compactMap { _, group in candidate(from: group, source: source) }.sorted { $0.monthlyCost.cents > $1.monthlyCost.cents }
     }
 
+    /// Wallet transactions in this path were explicitly selected by the person.
+    /// Preserve strict automatic detection when possible, but route uncertain groups
+    /// to review instead of silently discarding them after a date or price change.
+    static func detectSelected(in transactions: [DiscoveryTransaction], source: DiscoverySource) -> [DetectedSubscriptionCandidate] {
+        let groups = Dictionary(grouping: transactions) { transaction in
+            MerchantNormalizationService.normalize(transaction.merchantName ?? transaction.rawMerchantName).name.lowercased()
+        }
+        return groups.compactMap { _, group in
+            candidate(from: group, source: source) ?? reviewCandidate(from: group, source: source)
+        }.sorted { $0.monthlyCost.cents > $1.monthlyCost.cents }
+    }
+
     private static func candidate(from group: [DiscoveryTransaction], source: DiscoverySource) -> DetectedSubscriptionCandidate? {
         guard group.count >= 2 else { return nil }
         let ordered = group.sorted { $0.date < $1.date }
@@ -98,8 +110,46 @@ nonisolated enum SubscriptionDetectionService {
         )
     }
 
+    private static func reviewCandidate(from group: [DiscoveryTransaction], source: DiscoverySource) -> DetectedSubscriptionCandidate? {
+        guard group.count >= 2 else { return nil }
+        let ordered = group.sorted { $0.date < $1.date }
+        let gaps = zip(ordered, ordered.dropFirst())
+            .map { Calendar.current.dateComponents([.day], from: $0.date, to: $1.date).day ?? 0 }
+            .filter { $0 > 0 }
+            .sorted()
+        let medianGap = gaps[safe: gaps.count / 2] ?? 30
+        let frequency = bestEffortFrequency(days: medianGap)
+        let amounts = ordered.map { abs($0.amount.cents) }.filter { $0 > 0 }.sorted()
+        guard let medianAmount = amounts[safe: amounts.count / 2] else { return nil }
+        let last = ordered.last!
+        let normalized = MerchantNormalizationService.normalize(last.merchantName ?? last.rawMerchantName)
+        return DetectedSubscriptionCandidate(
+            id: "\(source.rawValue):\(last.id)", rawMerchantName: last.rawMerchantName, displayName: normalized.name,
+            billingAmount: Money(cents: medianAmount), frequency: frequency,
+            nextExpectedCharge: Calendar.current.date(byAdding: .day, value: expectedDays(for: frequency), to: last.date),
+            category: .other, confidence: 0.5, needsReview: true, paymentMethod: last.paymentMethod,
+            evidenceCount: group.count, source: source
+        )
+    }
+
     private static func frequency(days: Int) -> SubscriptionBillingFrequency? {
         switch days { case 5...10: .weekly; case 24...38: .monthly; case 330...400: .yearly; default: nil }
+    }
+
+    private static func bestEffortFrequency(days: Int) -> SubscriptionBillingFrequency {
+        switch days {
+        case 3...14: .weekly
+        case 300...430: .yearly
+        default: .monthly
+        }
+    }
+
+    private static func expectedDays(for frequency: SubscriptionBillingFrequency) -> Int {
+        switch frequency {
+        case .weekly: 7
+        case .monthly: 30
+        case .yearly: 365
+        }
     }
 }
 

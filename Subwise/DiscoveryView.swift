@@ -14,6 +14,7 @@ struct SubscriptionDiscoveryView: View {
     @State private var showingManual = false
     @State private var showingScreenshot = false
     @State private var walletCandidates: [DetectedSubscriptionCandidate] = []
+    @State private var showingWalletReview = false
     @State private var walletError: String?
     private let financeKit = FinanceKitService()
 
@@ -33,6 +34,29 @@ struct SubscriptionDiscoveryView: View {
                     ) { PlaidConnectionView() }
 
                     walletDiscoveryCard
+
+                    if !walletCandidates.isEmpty {
+                        Button { showingWalletReview = true } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.title2).foregroundStyle(Theme.green)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(walletCandidates.count) possible \(walletCandidates.count == 1 ? "subscription" : "subscriptions") found")
+                                        .font(.headline).foregroundStyle(.primary)
+                                    Text("Review the service, price, and billing cycle before adding.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("Review").font(.subheadline.bold()).foregroundStyle(Theme.green)
+                                Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+                            }.cardStyle()
+                        }.buttonStyle(.plain)
+                    }
+
+                    if let walletError {
+                        Label(walletError, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red).cardStyle()
+                    }
 
                     VStack(alignment: .leading, spacing: 14) {
                         DiscoveryCardContent(
@@ -54,7 +78,6 @@ struct SubscriptionDiscoveryView: View {
                     }.buttonStyle(.plain)
 
                     PrivacyCard()
-                    if let walletError { Label(walletError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).cardStyle() }
                 }.padding()
             }
             .analyticsScreenBackground()
@@ -62,8 +85,11 @@ struct SubscriptionDiscoveryView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) } }
             .sheet(isPresented: $showingManual) { AddSubscriptionView() }
             .sheet(isPresented: $showingScreenshot) { AppleSubscriptionImportView() }
-            .sheet(isPresented: Binding(get: { !walletCandidates.isEmpty }, set: { if !$0 { walletCandidates = [] } })) {
-                CandidateReviewView(candidates: walletCandidates, persistToBackend: false) { walletCandidates = [] }
+            .sheet(isPresented: $showingWalletReview) {
+                CandidateReviewView(candidates: walletCandidates, persistToBackend: false) {
+                    walletCandidates = []
+                    showingWalletReview = false
+                }
             }
         }
     }
@@ -73,7 +99,10 @@ struct SubscriptionDiscoveryView: View {
         if #available(iOS 18, *), financeKit.readiness == .ready {
             WalletTransactionPickerCard(financeKit: financeKit, description: walletDescription, actionTitle: walletActionTitle) { candidates, error in
                 walletError = error
-                if !candidates.isEmpty { walletCandidates = candidates }
+                if !candidates.isEmpty {
+                    walletCandidates = candidates
+                    walletError = nil
+                }
             }
         } else {
             walletUnavailableButton
@@ -139,7 +168,7 @@ private struct WalletTransactionPickerCard: View {
             guard !selected.isEmpty else { return }
             let candidates = financeKit.candidates(from: selected)
             if candidates.isEmpty {
-                onSelection([], "No recurring pattern was found in that selection. Choose at least two matching debit charges for each subscription.")
+                onSelection([], "No matching pair was found. Choose at least two debit charges from the same service, then try again.")
             } else {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 onSelection(candidates, nil)

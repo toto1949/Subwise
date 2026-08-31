@@ -51,12 +51,12 @@ struct FinanceKitService {
                     id: transaction.id.uuidString,
                     rawMerchantName: transaction.originalTransactionDescription,
                     merchantName: transaction.merchantName,
-                    amount: Money(cents: NSDecimalNumber(decimal: transaction.transactionAmount.amount * 100).intValue),
+                    amount: Money(cents: abs(NSDecimalNumber(decimal: transaction.transactionAmount.amount * 100).intValue)),
                     date: transaction.postedDate ?? transaction.transactionDate,
                     paymentMethod: "Apple Wallet"
                 )
             }
-        return SubscriptionDetectionService.detect(in: values, source: .financeKit)
+        return SubscriptionDetectionService.detectSelected(in: values, source: .financeKit)
     }
     #endif
 }

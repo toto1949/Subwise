@@ -41,6 +41,23 @@ final class SubwiseTests: XCTestCase {
         XCTAssertTrue(SubscriptionDetectionService.detect(in: Array(transactions.prefix(1)), source: .financeKit).isEmpty)
     }
 
+    func testWalletSelectionRoutesUncertainCadenceToReview() throws {
+        let firstDate = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-01-01T12:00:00Z"))
+        let secondDate = try XCTUnwrap(Calendar(identifier: .gregorian).date(byAdding: .day, value: 45, to: firstDate))
+        let selected = [
+            DiscoveryTransaction(id: "wallet-1", rawMerchantName: "LOCAL GYM", merchantName: "Local Gym", amount: Money(cents: 4_999), date: firstDate, paymentMethod: "Apple Wallet"),
+            DiscoveryTransaction(id: "wallet-2", rawMerchantName: "LOCAL GYM", merchantName: "Local Gym", amount: Money(cents: 5_499), date: secondDate, paymentMethod: "Apple Wallet")
+        ]
+
+        XCTAssertTrue(SubscriptionDetectionService.detect(in: selected, source: .financeKit).isEmpty)
+        let review = SubscriptionDetectionService.detectSelected(in: selected, source: .financeKit)
+        XCTAssertEqual(review.count, 1)
+        XCTAssertEqual(review.first?.displayName, "Local Gym")
+        XCTAssertEqual(review.first?.evidenceCount, 2)
+        XCTAssertEqual(review.first?.frequency, .monthly)
+        XCTAssertEqual(review.first?.needsReview, true)
+    }
+
     @MainActor
     func testFinanceKitRemainsUnavailableWithoutManagedCapability() {
         let service = FinanceKitService(capabilityEnabled: false)
