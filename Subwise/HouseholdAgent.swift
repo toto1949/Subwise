@@ -2,7 +2,11 @@ import SwiftUI
 
 struct HouseholdView: View {
     @Environment(AppStore.self) private var store
+    @Environment(AccountSession.self) private var account
+    @Binding var pendingInviteToken: String?
     @State private var showingInvite = false
+    @State private var household: HouseholdDTO?
+    @State private var refreshError: String?
     var body: some View {
         NavigationStack { ScrollView { VStack(alignment: .leading, spacing: 18) {
             Text("Find savings across everyone—not just one account.").foregroundStyle(.secondary)
@@ -21,8 +25,53 @@ struct HouseholdView: View {
                 }.cardStyle()
             }
             VStack(alignment: .leading, spacing: 6) { Label("Private by default", systemImage: "lock.fill").font(.headline); Text("Members share only the service information they choose. Transaction details remain private.").font(.subheadline).foregroundStyle(.secondary) }.cardStyle()
+            if let pending = household?.members.filter({ $0.userId == nil }), !pending.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Pending invitations").font(.headline)
+                    ForEach(pending, id: \.id) { member in
+                        HStack {
+                            Image(systemName: "envelope.badge").foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(member.displayName).font(.subheadline.bold())
+                                Text(member.invitedEmail ?? "Waiting to join").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("Pending").font(.caption.bold()).foregroundStyle(.orange)
+                        }
+                    }
+                }.cardStyle()
+            }
+            if let refreshError { Label(refreshError, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.orange).cardStyle() }
             PrimaryButton(title: "Invite household member", systemImage: "person.badge.plus") { showingInvite = true }
-        }.padding() }.background(Color(.systemGroupedBackground)).navigationTitle("Household").sheet(isPresented: $showingInvite) { InviteMemberView() } }
+        }.padding() }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Household")
+        .task { await refreshHousehold() }
+        .sheet(isPresented: $showingInvite) { InviteMemberView { Task { await refreshHousehold() } } }
+        .sheet(isPresented: Binding(get: { pendingInviteToken != nil }, set: { if !$0 { pendingInviteToken = nil } })) {
+            if let token = pendingInviteToken {
+                IncomingHouseholdInvitationView(token: token) {
+                    pendingInviteToken = nil
+                    Task { await refreshHousehold() }
+                }
+            }
+        }
+        }
+    }
+
+    private func refreshHousehold() async {
+        guard account.state == .authenticated else { return }
+        do {
+            let value = try await HouseholdService.shared.current()
+            household = value
+            try await store.syncHouseholdMembers(value.members)
+            refreshError = nil
+        } catch APIError.server(let code, _, _) where code == "HOUSEHOLD_NOT_FOUND" {
+            household = nil
+            refreshError = nil
+        } catch {
+            refreshError = "Household status could not be refreshed. Pull down or try again shortly."
+        }
     }
 }
 
@@ -33,15 +82,32 @@ private struct HouseholdOpportunity: View {
 
 private struct InviteMemberView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppStore.self) private var store
     @Environment(AccountSession.self) private var account
     @State private var email = ""
     @State private var name = ""
     @State private var sharing = "Optimization only"
     @State private var errorMessage: String?
     @State private var isSending = false
+    @State private var result: HouseholdInvitationResult?
+    let onCompleted: () -> Void
     var body: some View {
         NavigationStack {
+            Group {
+            if let result {
+                VStack(spacing: 20) {
+                    Image(systemName: result.wasEmailed ? "envelope.circle.fill" : "square.and.arrow.up.circle.fill")
+                        .font(.system(size: 58)).foregroundStyle(Theme.green)
+                    VStack(spacing: 8) {
+                        Text(result.wasEmailed ? "Invitation emailed" : "Invitation ready to share").font(.title2.bold())
+                        Text(result.wasEmailed ? "We sent the invitation to \(email). You can also share the secure link directly." : "Email delivery is not configured yet. Share this secure seven-day link with \(email) now.")
+                            .multilineTextAlignment(.center).foregroundStyle(.secondary)
+                    }
+                    ShareLink(item: result.inviteURL, subject: Text("Join my SubWise household"), message: Text("Join my SubWise household to find subscription savings together.")) {
+                        Label("Share invitation", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                    }.buttonStyle(.borderedProminent).tint(Theme.green)
+                    Button("Done") { onCompleted(); dismiss() }.buttonStyle(.bordered)
+                }.padding(28)
+            } else {
             Form {
                 Section("Invitation") {
                     TextField("Name", text: $name)
@@ -57,11 +123,13 @@ private struct InviteMemberView: View {
                 }
                 if let errorMessage { Section { Label(errorMessage, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) } }
             }
+            }
+            }
             .navigationTitle("Invite Member")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) }
-                ToolbarItem(placement: .confirmationAction) { Button("Invite", systemImage: "paperplane.fill", action: invite).labelStyle(.iconOnly).disabled(!email.contains("@") || isSending) }
+                if result == nil { ToolbarItem(placement: .confirmationAction) { Button("Invite", systemImage: "paperplane.fill", action: invite).labelStyle(.iconOnly).disabled(!email.contains("@") || isSending) } }
             }
         }
     }
@@ -72,11 +140,74 @@ private struct InviteMemberView: View {
         Task {
             let displayName = name.isEmpty ? email.split(separator: "@").first.map(String.init) ?? "Member" : name
             do {
-                try await HouseholdService.shared.invite(email: email, name: displayName, sharingMode: mode)
-                try await store.addHouseholdMember(name: displayName)
-                dismiss()
+                result = try await HouseholdService.shared.invite(email: email, name: displayName, sharingMode: mode)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                isSending = false
             }
-            catch { errorMessage = "Sign in and check your connection before inviting a member."; isSending = false }
+            catch { errorMessage = error.localizedDescription; isSending = false; UINotificationFeedbackGenerator().notificationOccurred(.error) }
+        }
+    }
+}
+
+private struct IncomingHouseholdInvitationView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppStore.self) private var store
+    @Environment(AccountSession.self) private var account
+    let token: String
+    let onFinished: () -> Void
+    @State private var preview: HouseholdInvitationPreview?
+    @State private var isJoining = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Image(systemName: "person.2.circle.fill").font(.system(size: 64)).foregroundStyle(Theme.green)
+                if let preview {
+                    VStack(spacing: 8) {
+                        Text("Join \(preview.householdName)?").font(.title2.bold())
+                        Text("\(preview.inviterName) invited \(preview.invitedName) to find household subscription savings together.")
+                            .multilineTextAlignment(.center).foregroundStyle(.secondary)
+                        Text("Expires \(preview.expiresAt.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if account.state == .authenticated {
+                        PrimaryButton(title: isJoining ? "Joining…" : "Join household", systemImage: "person.2.badge.plus") { join() }
+                            .disabled(isJoining)
+                    } else {
+                        Text("Sign in with Apple to accept this invitation.").font(.subheadline).foregroundStyle(.secondary)
+                        Button("Go to sign in") { account.requireAuthentication() }.buttonStyle(.borderedProminent).tint(Theme.green)
+                    }
+                } else if errorMessage == nil {
+                    ProgressView("Checking invitation…")
+                }
+                if let errorMessage { Label(errorMessage, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).cardStyle() }
+            }.padding(28).frame(maxHeight: .infinity, alignment: .center)
+            .navigationTitle("Household invitation").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { onFinished(); dismiss() } } }
+            .task { await loadPreview() }
+        }
+    }
+
+    private func loadPreview() async {
+        do { preview = try await HouseholdService.shared.invitationPreview(token: token) }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    private func join() {
+        guard !isJoining else { return }
+        isJoining = true; errorMessage = nil
+        Task {
+            do {
+                let household = try await HouseholdService.shared.acceptInvitation(token: token)
+                try await store.syncHouseholdMembers(household.members)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                onFinished(); dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+            isJoining = false
         }
     }
 }

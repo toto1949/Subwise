@@ -68,6 +68,18 @@ nonisolated enum MerchantNormalizationService {
         if let match = aliases.first(where: { cleaned.contains($0.0) }) { return (match.1, 0.94, false) }
         return (raw.trimmingCharacters(in: .whitespacesAndNewlines), 0.35, true)
     }
+
+    static func category(for merchant: String) -> SubscriptionCategory {
+        let value = merchant.lowercased()
+        if ["spotify", "apple music"].contains(where: value.contains) { return .music }
+        if ["netflix", "youtube", "hulu", "disney", "prime video"].contains(where: value.contains) { return .streaming }
+        if ["icloud", "dropbox", "google one"].contains(where: value.contains) { return .cloud }
+        if ["chatgpt", "openai", "claude", "perplexity"].contains(where: value.contains) { return .ai }
+        if ["gym", "fitness", "peloton", "strava"].contains(where: value.contains) { return .fitness }
+        if ["adobe", "microsoft", "canva", "notion"].contains(where: value.contains) { return .productivity }
+        if ["news", "times", "journal"].contains(where: value.contains) { return .news }
+        return .other
+    }
 }
 
 nonisolated enum SubscriptionDetectionService {
@@ -104,7 +116,7 @@ nonisolated enum SubscriptionDetectionService {
         let nextDate = Calendar.current.date(byAdding: .day, value: medianGap, to: last.date)
         return DetectedSubscriptionCandidate(
             id: "\(source.rawValue):\(last.id)", rawMerchantName: last.rawMerchantName, displayName: normalized.name,
-            billingAmount: Money(cents: medianAmount), frequency: frequency, nextExpectedCharge: nextDate, category: .other,
+            billingAmount: Money(cents: medianAmount), frequency: frequency, nextExpectedCharge: nextDate, category: MerchantNormalizationService.category(for: normalized.name),
             confidence: min(normalized.needsReview ? 0.59 : 0.92, 0.58 + Double(min(group.count, 6)) * 0.06),
             needsReview: normalized.needsReview, paymentMethod: last.paymentMethod, evidenceCount: group.count, source: source
         )
@@ -127,7 +139,7 @@ nonisolated enum SubscriptionDetectionService {
             id: "\(source.rawValue):\(last.id)", rawMerchantName: last.rawMerchantName, displayName: normalized.name,
             billingAmount: Money(cents: medianAmount), frequency: frequency,
             nextExpectedCharge: Calendar.current.date(byAdding: .day, value: expectedDays(for: frequency), to: last.date),
-            category: .other, confidence: 0.5, needsReview: true, paymentMethod: last.paymentMethod,
+            category: MerchantNormalizationService.category(for: normalized.name), confidence: 0.5, needsReview: true, paymentMethod: last.paymentMethod,
             evidenceCount: group.count, source: source
         )
     }

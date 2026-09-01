@@ -12,6 +12,7 @@ protocol SubscriptionRepository: AnyObject {
     func deleteSavingsEvents(subscriptionID: UUID, status: SavingsEventStatus) async throws
     func fetchHouseholdMembers() async throws -> [HouseholdMember]
     func upsertHouseholdMember(_ member: HouseholdMember) async throws
+    func replaceHouseholdMembers(_ members: [HouseholdMember]) async throws
     func deleteHouseholdMember(id: UUID) async throws
 }
 
@@ -177,6 +178,12 @@ final class SwiftDataSubscriptionRepository: SubscriptionRepository {
         descriptor.fetchLimit = 1
         if let existing = try context.fetch(descriptor).first { existing.update(from: member) }
         else { context.insert(StoredHouseholdMember(member)) }
+        try context.save()
+    }
+
+    func replaceHouseholdMembers(_ members: [HouseholdMember]) async throws {
+        try context.delete(model: StoredHouseholdMember.self)
+        members.forEach { context.insert(StoredHouseholdMember($0)) }
         try context.save()
     }
 

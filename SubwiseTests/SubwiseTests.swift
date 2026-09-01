@@ -28,6 +28,9 @@ final class SubwiseTests: XCTestCase {
         let apple = MerchantNormalizationService.normalize("APPLE.COM/BILL 866-712-7753")
         XCTAssertEqual(apple.name, "Apple purchase")
         XCTAssertTrue(apple.needsReview)
+        XCTAssertEqual(MerchantNormalizationService.category(for: "Spotify Premium"), .music)
+        XCTAssertEqual(MerchantNormalizationService.category(for: "Netflix"), .streaming)
+        XCTAssertEqual(MerchantNormalizationService.category(for: "Local Gym"), .fitness)
     }
 
     func testDiscoveryRequiresRecurringEvidence() throws {
@@ -218,6 +221,16 @@ final class SubwiseTests: XCTestCase {
         try await repository.upsertHouseholdMember(member)
         let saved = try await repository.fetchHouseholdMembers()
         XCTAssertEqual(saved, [member])
+    }
+
+    @MainActor
+    func testSwiftDataRepositoryReplacesStaleHouseholdMembersAfterServerSync() async throws {
+        let repository = try SwiftDataSubscriptionRepository(inMemory: true)
+        try await repository.upsertHouseholdMember(.init(id: UUID(), name: "Pending local entry", monthlySpend: Money(cents: 0), initials: "PL"))
+        let joined = HouseholdMember(id: UUID(), name: "Taylor Morgan", monthlySpend: Money(cents: 0), initials: "TM")
+        try await repository.replaceHouseholdMembers([joined])
+        let saved = try await repository.fetchHouseholdMembers()
+        XCTAssertEqual(saved, [joined])
     }
 
     @MainActor

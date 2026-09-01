@@ -2,15 +2,22 @@ import Charts
 import SwiftUI
 
 struct MainTabView: View {
+    @Binding private var pendingHouseholdInviteToken: String?
     @State private var selection = 0
     @State private var selectedCategory: SubscriptionCategory?
+    init(pendingHouseholdInviteToken: Binding<String?> = .constant(nil)) {
+        _pendingHouseholdInviteToken = pendingHouseholdInviteToken
+    }
     var body: some View {
         TabView(selection: $selection) {
             HomeView(selection: $selection, selectedCategory: $selectedCategory).tabItem { Label("Home", systemImage: "house.fill") }.tag(0)
             SubscriptionsView(category: $selectedCategory).tabItem { Label("Subs", systemImage: "creditcard.fill") }.tag(1)
             OptimizeView().tabItem { Label("Optimize", systemImage: "sparkles") }.tag(2)
-            HouseholdView().tabItem { Label("Family", systemImage: "person.2.fill") }.tag(3)
+            HouseholdView(pendingInviteToken: $pendingHouseholdInviteToken).tabItem { Label("Family", systemImage: "person.2.fill") }.tag(3)
             AgentView().tabItem { Label("Agent", systemImage: "message.fill") }.tag(4)
+        }
+        .onChange(of: pendingHouseholdInviteToken) { _, token in
+            if token != nil { selection = 3 }
         }
     }
 }

@@ -102,6 +102,11 @@ struct SubscriptionDiscoveryView: View {
                 if !candidates.isEmpty {
                     walletCandidates = candidates
                     walletError = nil
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(550))
+                        guard !walletCandidates.isEmpty else { return }
+                        showingWalletReview = true
+                    }
                 }
             }
         } else {
@@ -360,9 +365,19 @@ struct CandidateReviewView: View {
         Task {
             do {
                 let serverIDs = persistToBackend ? try await PlaidService().confirm(selected) : []
-                for (index, candidate) in selected.enumerated() where !store.activeSubscriptions.contains(where: { $0.name.caseInsensitiveCompare(candidate.displayName) == .orderedSame && $0.monthlyCost == candidate.monthlyCost }) {
-                    let subscription = serverIDs.indices.contains(index) ? candidate.subscription(id: serverIDs[index]) : candidate.subscription
-                    try await store.add(subscription)
+                for (index, candidate) in selected.enumerated() {
+                    let normalizedName = MerchantNormalizationService.normalize(candidate.displayName).name
+                    if let existing = store.activeSubscriptions.first(where: { MerchantNormalizationService.normalize($0.name).name.caseInsensitiveCompare(normalizedName) == .orderedSame }) {
+                        var updated = candidate.subscription(id: existing.id)
+                        updated.usage = existing.usage
+                        updated.isImportant = existing.isImportant
+                        updated.status = candidate.needsReview ? .review : .active
+                        if existing.monthlyCost != updated.monthlyCost { updated.previousMonthlyCost = existing.monthlyCost }
+                        try await store.update(updated)
+                    } else {
+                        let subscription = serverIDs.indices.contains(index) ? candidate.subscription(id: serverIDs[index]) : candidate.subscription
+                        try await store.add(subscription)
+                    }
                 }
                 UINotificationFeedbackGenerator().notificationOccurred(.success); onFinished(); dismiss()
             } catch { errorMessage = "The selected subscriptions could not be saved: \(error.localizedDescription)"; UINotificationFeedbackGenerator().notificationOccurred(.error) }

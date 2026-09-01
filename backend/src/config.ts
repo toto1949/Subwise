@@ -13,6 +13,9 @@ const schema = z.object({
   PLAID_ENV: z.enum(["sandbox", "development", "production"]).default("sandbox"),
   PLAID_REDIRECT_URI: z.string().url().optional(),
   DATA_ENCRYPTION_KEY: z.string().min(32).optional(),
+  PUBLIC_BASE_URL: z.string().url().default("https://subwise-api.vercel.app"),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_FROM_EMAIL: z.string().min(3).optional(),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info")
 });
 

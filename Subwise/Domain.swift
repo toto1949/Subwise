@@ -199,6 +199,15 @@ final class AppStore {
         await reload()
     }
 
+    func syncHouseholdMembers(_ members: [HouseholdDTO.Member]) async throws {
+        let joined = members.filter { $0.userId != nil }.map { member in
+            let initials = member.displayName.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
+            return HouseholdMember(id: member.id, name: member.displayName, monthlySpend: Money(cents: 0), initials: initials.isEmpty ? "HM" : initials)
+        }
+        try await repository.replaceHouseholdMembers(joined)
+        await reload()
+    }
+
     func remove(id: UUID) async throws {
         try await repository.delete(id: id)
         await reload()

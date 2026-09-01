@@ -25,6 +25,7 @@ actor APIClient {
     private let vault: KeychainVault
     private let baseURL: URL
     private let decoder: JSONDecoder
+    private var refreshTask: Task<AuthTokens, Error>?
 
     init(baseURL: URL = AppConfiguration.apiBaseURL, session: URLSession = .shared, vault: KeychainVault = .shared) {
         self.baseURL = baseURL; self.session = session; self.vault = vault
@@ -69,12 +70,22 @@ actor APIClient {
     }
 
     private func refreshSession() async throws {
+        if let refreshTask {
+            _ = try await refreshTask.value
+            return
+        }
         guard let refreshToken = try await vault.value(for: "refreshToken") else { throw APIError.unauthorized }
         let body = try encode(RefreshRequest(refreshToken: refreshToken))
         let endpoint = Endpoint<AuthTokens>(path: "auth/refresh", method: .post, body: body, requiresAuthentication: false)
-        let tokens = try await perform(endpoint, allowAuthenticationRefresh: false, allowNetworkRetry: false)
-        try await vault.set(tokens.accessToken, for: "accessToken")
-        try await vault.set(tokens.refreshToken, for: "refreshToken")
+        let task = Task<AuthTokens, Error> {
+            let tokens = try await self.perform(endpoint, allowAuthenticationRefresh: false, allowNetworkRetry: false)
+            try await self.vault.set(tokens.accessToken, for: "accessToken")
+            try await self.vault.set(tokens.refreshToken, for: "refreshToken")
+            return tokens
+        }
+        refreshTask = task
+        defer { refreshTask = nil }
+        _ = try await task.value
     }
 }
 
