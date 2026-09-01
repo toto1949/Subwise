@@ -55,6 +55,25 @@ describe("OptimizationEngine", () => {
     expect(results[0]?.reasonCodes).toContain("eligibility_unverified");
   });
 
+  it("offers only a recently verified cheaper service alternative", () => {
+    const results = optimizeSubscriptions([{
+      id: "spotify", merchant: "Spotify", category: "music", monthlyCents: 1299, valueScore: 80, usage: "high",
+      alternatives: [{
+        merchant: "Apple Music",
+        rationale: "Libraries and device fit differ.",
+        plan: { name: "Individual", monthlyCents: 1199, frequency: "monthly", planType: "individual", sourceUrl: "https://www.apple.com/apple-music/", verifiedAt: new Date() }
+      }]
+    }]);
+    expect(results[0]).toMatchObject({
+      type: "cheaper_alternative",
+      estimatedMonthlySavingsCents: 100,
+      estimatedAnnualSavingsCents: 1200,
+      targetName: "Apple Music Individual",
+      sourceUrl: "https://www.apple.com/apple-music/"
+    });
+    expect(results[0]?.explanation).toContain("Compare features");
+  });
+
   it("calculates price increase impact from confirmed observations", () => {
     const results = optimizeSubscriptions([{ id: "video", merchant: "Video", category: "streaming", monthlyCents: 2299, previousMonthlyCents: 1999, valueScore: 80, usage: "high" }]);
     expect(results[0]).toMatchObject({ type: "price_increase", estimatedAnnualSavingsCents: 3600, confidence: 0.96 });

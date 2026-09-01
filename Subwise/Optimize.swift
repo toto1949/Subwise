@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OptimizeView: View {
     @Environment(AppStore.self) private var store
+    @AppStorage("monthlySavingsGoal") private var monthlyGoal = 50.0
     @State private var showingPlan = false
     var body: some View {
         @Bindable var store = store
@@ -9,7 +10,7 @@ struct OptimizeView: View {
             ScrollView { VStack(alignment: .leading, spacing: 16) {
                 HStack { Label("\(store.opportunities.count) OPPORTUNITIES", systemImage: "sparkles").font(.caption.bold()).foregroundStyle(Theme.green); Spacer(); Text("\(store.availableSavings.compactFormatted)/year").font(.headline).foregroundStyle(Theme.green) }
                 Text("Start with the highest-impact changes. You approve every action.").foregroundStyle(.secondary)
-                SavingsPlanSummary(current: store.monthlySpend, potential: Money(cents: max(0, store.monthlySpend.cents - store.availableSavings.cents / 12)), savings: store.availableSavings)
+                SavingsPlanSummary(current: store.monthlySpend, potential: Money(cents: max(0, store.monthlySpend.cents - store.selectedSavings.cents / 12)), savings: store.selectedSavings, monthlyGoal: Money(cents: Int(monthlyGoal * 100)))
                 if !store.activeSavingsEvents.isEmpty {
                     ActivePlanCard(events: store.activeSavingsEvents)
                 }
@@ -24,13 +25,16 @@ struct OptimizeView: View {
             }.padding() }.background(Color(.systemGroupedBackground)).navigationTitle("Your savings plan")
             .navigationDestination(for: Subscription.self) { SubscriptionDetailView(subscription: $0) }
             .sheet(isPresented: $showingPlan) { SavingsPlanView() }
-            .task { await store.refreshServerRecommendations() }
+            .task { await store.refreshServerRecommendations(monthlySavingsGoal: Money(cents: Int(monthlyGoal * 100))) }
+            .onChange(of: monthlyGoal) { _, value in Task { await store.refreshServerRecommendations(monthlySavingsGoal: Money(cents: Int(value * 100))) } }
         }
     }
 }
 
 private struct SavingsPlanSummary: View {
-    let current: Money, potential: Money, savings: Money
+    let current: Money, potential: Money, savings: Money, monthlyGoal: Money
+    private var monthlySavings: Money { Money(cents: savings.cents / 12) }
+    private var progress: Double { monthlyGoal.cents > 0 ? min(1, Double(monthlySavings.cents) / Double(monthlyGoal.cents)) : 0 }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Your SubWise Savings Plan").font(.title2.bold()).foregroundStyle(.white)
@@ -40,6 +44,13 @@ private struct SavingsPlanSummary: View {
             }
             Divider().overlay(.white.opacity(0.2))
             HStack { VStack(alignment: .leading) { Text("Potential savings").font(.caption).foregroundStyle(.white.opacity(0.65)); Text(savings.formatted + "/year").font(.title.bold()).foregroundStyle(Theme.mint) }; Spacer(); Image(systemName: "arrow.down.right.circle.fill").font(.largeTitle).foregroundStyle(Theme.green) }
+            if monthlyGoal.cents > 0 {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack { Text("Goal progress"); Spacer(); Text("\(monthlySavings.compactFormatted) of \(monthlyGoal.compactFormatted)/mo") }
+                        .font(.caption.bold()).foregroundStyle(.white.opacity(0.78))
+                    ProgressView(value: progress).tint(Theme.green)
+                }
+            }
         }.padding(20).background(Theme.ink, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }
@@ -51,6 +62,7 @@ private struct SummaryValue: View {
 
 struct OpportunityCard: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.openURL) private var openURL
     @Binding var opportunity: SavingsOpportunity
     var sequence: Int? = nil
     var body: some View {
@@ -72,6 +84,10 @@ struct OpportunityCard: View {
                 }
             }
             HStack { Label("\(opportunity.confidence) confidence", systemImage: "checkmark.shield"); Spacer(); Label("\(opportunity.effortMinutes) min", systemImage: "clock") }.font(.caption).foregroundStyle(.secondary)
+            if let sourceURL = opportunity.sourceURL {
+                Button("Verify provider pricing", systemImage: "checkmark.shield") { openURL(sourceURL) }
+                    .font(.subheadline.bold()).buttonStyle(.bordered)
+            }
             Toggle("Include in plan", isOn: $opportunity.isSelected).font(.subheadline.bold())
             if let subscription = store.subscriptions.first(where: { $0.name == opportunity.merchant }) {
                 NavigationLink(value: subscription) {

@@ -16,6 +16,7 @@ struct SubscriptionDiscoveryView: View {
     @State private var walletCandidates: [DetectedSubscriptionCandidate] = []
     @State private var showingWalletReview = false
     @State private var walletError: String?
+    @State private var walletScanSummary: String?
     private let financeKit = FinanceKitService()
 
     var body: some View {
@@ -97,8 +98,9 @@ struct SubscriptionDiscoveryView: View {
     @ViewBuilder private var walletDiscoveryCard: some View {
         #if canImport(FinanceKit) && canImport(FinanceKitUI)
         if #available(iOS 18, *), financeKit.readiness == .ready {
-            WalletTransactionPickerCard(financeKit: financeKit, description: walletDescription, actionTitle: walletActionTitle) { candidates, error in
+            WalletFinanceKitCard(financeKit: financeKit, description: walletDescription) { candidates, error, summary in
                 walletError = error
+                walletScanSummary = summary
                 if !candidates.isEmpty {
                     walletCandidates = candidates
                     walletError = nil
@@ -108,6 +110,10 @@ struct SubscriptionDiscoveryView: View {
                         showingWalletReview = true
                     }
                 }
+            }
+            if let walletScanSummary {
+                Label(walletScanSummary, systemImage: "checkmark.shield.fill")
+                    .font(.subheadline).foregroundStyle(Theme.green).cardStyle()
             }
         } else {
             walletUnavailableButton
@@ -134,7 +140,7 @@ struct SubscriptionDiscoveryView: View {
     private var walletDescription: String {
         switch financeKit.readiness {
         case .ready:
-            "Choose at least two matching charges for each service. SubWise analyzes only the Wallet transactions you select."
+            "Authorize once to scan recurring charges across every eligible FinanceKit account you choose, or select individual transactions manually."
         case .unavailable:
             "Apple’s Wallet transaction picker requires iOS 18 or later. You can still connect a bank, import a screenshot, or add manually."
         case .capabilityMissing:
@@ -144,7 +150,7 @@ struct SubscriptionDiscoveryView: View {
 
     private var walletActionTitle: String {
         switch financeKit.readiness {
-        case .ready: "Select Wallet transactions"
+        case .ready: "Scan eligible accounts"
         case .unavailable: "See other options"
         case .capabilityMissing: "Wallet access unavailable"
         }
@@ -154,30 +160,69 @@ struct SubscriptionDiscoveryView: View {
 
 #if canImport(FinanceKit) && canImport(FinanceKitUI)
 @available(iOS 18, *)
-private struct WalletTransactionPickerCard: View {
+private struct WalletFinanceKitCard: View {
     let financeKit: FinanceKitService
     let description: String
-    let actionTitle: String
-    let onSelection: ([DetectedSubscriptionCandidate], String?) -> Void
+    let onSelection: ([DetectedSubscriptionCandidate], String?, String?) -> Void
     @State private var transactions: [FinanceKit.Transaction] = []
+    @State private var isScanning = false
 
     var body: some View {
-        TransactionPicker(selection: $transactions) {
+        VStack(alignment: .leading, spacing: 14) {
             DiscoveryCardContent(
-                title: "Apple Card & Wallet", description: description,
-                symbol: "wallet.bifold.fill", tint: Theme.sky, actionTitle: actionTitle
+                title: "Apple Wallet accounts", description: description,
+                symbol: "wallet.bifold.fill", tint: Theme.sky, actionTitle: "Private, on-device analysis"
             )
+            Button {
+                scanAccounts()
+            } label: {
+                Label(isScanning ? "Scanning authorized accounts…" : "Scan eligible accounts", systemImage: "sparkle.magnifyingglass")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).tint(Theme.sky).disabled(isScanning)
+
+            TransactionPicker(selection: $transactions) {
+                Label("Choose transactions manually", systemImage: "checklist")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+
+            Text("FinanceKit shares only the accounts and date range you approve. Availability depends on country, institution, and Wallet eligibility.")
+                .font(.caption).foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
+        .cardStyle()
         .onChange(of: transactions) { _, selected in
             guard !selected.isEmpty else { return }
             let candidates = financeKit.candidates(from: selected)
             if candidates.isEmpty {
-                onSelection([], "No matching pair was found. Choose at least two debit charges from the same service, then try again.")
+                onSelection([], "No matching pair was found. Choose at least two debit charges from the same service, then try again.", nil)
             } else {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                onSelection(candidates, nil)
+                onSelection(candidates, nil, "Analyzed \(selected.count) transactions you selected manually.")
             }
+        }
+    }
+
+    private func scanAccounts() {
+        guard !isScanning else { return }
+        isScanning = true
+        Task {
+            do {
+                let result = try await financeKit.discoverFromAuthorizedAccounts()
+                let ignored = result.ignoredCurrencyCount > 0 ? " \(result.ignoredCurrencyCount) non-USD charges were left out because SubWise does not guess exchange rates." : ""
+                let accountLabel = result.accountCount == 1 ? "account" : "accounts"
+                let summary = "Analyzed \(result.analyzedTransactionCount) booked debit transactions across \(result.accountCount) eligible \(accountLabel)." + ignored
+                if result.candidates.isEmpty {
+                    onSelection([], "No reliable recurring pattern was found yet. You can select matching charges manually for review.", summary)
+                } else {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    onSelection(result.candidates, nil, summary)
+                }
+            } catch {
+                onSelection([], error.localizedDescription, nil)
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+            isScanning = false
         }
     }
 }
@@ -337,6 +382,7 @@ struct CandidateReviewView: View {
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack { Text(candidate.displayName).font(.headline); if candidate.needsReview { Text("NEEDS REVIEW").font(.caption2.bold()).foregroundStyle(.orange) } }
                                     Text(candidate.subtitle + " • \(candidate.evidenceCount) matching charges").font(.caption).foregroundStyle(.secondary)
+                                    if let paymentMethod = candidate.paymentMethod { Text(paymentMethod).font(.caption2).foregroundStyle(.secondary) }
                                     if let date = candidate.nextExpectedCharge { Text("Next expected charge: \(date.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary) }
                                 }
                                 Spacer()
@@ -369,8 +415,9 @@ struct CandidateReviewView: View {
                     let normalizedName = MerchantNormalizationService.normalize(candidate.displayName).name
                     if let existing = store.activeSubscriptions.first(where: { MerchantNormalizationService.normalize($0.name).name.caseInsensitiveCompare(normalizedName) == .orderedSame }) {
                         var updated = candidate.subscription(id: existing.id)
-                        updated.usage = existing.usage
-                        updated.isImportant = existing.isImportant
+                        updated.usage = candidate.usage == .unknown ? existing.usage : candidate.usage
+                        updated.isImportant = candidate.isImportant || existing.isImportant
+                        updated.valueScore = SubscriptionValueScore.calculate(monthlyCost: updated.monthlyCost, usage: updated.usage, isImportant: updated.isImportant, isTrial: false)
                         updated.status = candidate.needsReview ? .review : .active
                         if existing.monthlyCost != updated.monthlyCost { updated.previousMonthlyCost = existing.monthlyCost }
                         try await store.update(updated)
@@ -401,6 +448,10 @@ private struct CandidateEditor: View {
             Picker("Billing cycle", selection: $candidate.frequency) { ForEach(SubscriptionBillingFrequency.allCases) { Text($0.rawValue).tag($0) } }
             DatePicker("Next expected charge", selection: Binding(get: { candidate.nextExpectedCharge ?? .now }, set: { candidate.nextExpectedCharge = $0 }), displayedComponents: .date)
             Picker("Category", selection: $candidate.category) { ForEach(SubscriptionCategory.allCases) { Text($0.rawValue).tag($0) } }
+            Picker("Current usage", selection: $candidate.usage) { ForEach(SubscriptionUsage.allCases) { Text($0.rawValue).tag($0) } }
+            Toggle("Important to keep", isOn: $candidate.isImportant)
+            Text("Usage and importance make the first savings plan personal. FinanceKit provides charge history, not app activity.")
+                .font(.footnote).foregroundStyle(.secondary)
             if candidate.needsReview { Label("Confirm the service because the transaction description was ambiguous.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
         }.navigationTitle("Edit candidate").navigationBarTitleDisplayMode(.inline).toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

@@ -143,6 +143,7 @@ private struct DetailAction: View {
 
 private struct SubscriptionSavingsOptionsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @Environment(AppStore.self) private var store
     let subscription: Subscription
     private var opportunities: [SavingsOpportunity] { store.opportunities.filter { $0.subscriptionIDs.contains(subscription.id) } }
@@ -155,7 +156,7 @@ private struct SubscriptionSavingsOptionsView: View {
                     .cardStyle()
             } else {
                 ForEach(opportunities) { opportunity in
-                    VStack(alignment: .leading, spacing: 8) { Text(opportunity.title).font(.headline); Text(opportunity.explanation).foregroundStyle(.secondary); Label("Potential savings: \(opportunity.annualSavings.formatted)/year", systemImage: "arrow.down.right.circle.fill").foregroundStyle(Theme.green) }.cardStyle()
+                    VStack(alignment: .leading, spacing: 8) { Text(opportunity.title).font(.headline); Text(opportunity.explanation).foregroundStyle(.secondary); Label("Potential savings: \(opportunity.annualSavings.formatted)/year", systemImage: "arrow.down.right.circle.fill").foregroundStyle(Theme.green); if let sourceURL = opportunity.sourceURL { Button("Open verified source", systemImage: "arrow.up.right.square") { openURL(sourceURL) }.buttonStyle(.bordered) } }.cardStyle()
                 }
             }
             Text("Eligibility and plan features must be confirmed on the provider’s official page before you change anything.").font(.footnote).foregroundStyle(.secondary)

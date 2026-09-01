@@ -43,7 +43,7 @@ final class SubwiseUITests: XCTestCase {
         discover.tap()
 
         XCTAssertTrue(app.staticTexts["Connect your bank or card"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Apple Card & Wallet"].exists)
+        XCTAssertTrue(app.staticTexts["Apple Wallet accounts"].exists)
         XCTAssertTrue(app.staticTexts["Apple subscriptions"].exists)
         XCTAssertTrue(app.staticTexts["Add manually"].exists)
 

@@ -2,7 +2,7 @@ const aliases: Record<string, string> = {
   "netflix com": "Netflix", netflix: "Netflix", "spotify usa": "Spotify", spotify: "Spotify",
   "adobe systems": "Adobe", adobe: "Adobe", "apple com bill icloud": "iCloud+", openai: "ChatGPT",
   "youtube premium": "YouTube Premium", "google youtube": "YouTube Premium", "microsoft 365": "Microsoft 365",
-  "amazon prime": "Amazon Prime", dropbox: "Dropbox", canva: "Canva", hulu: "Hulu", disney: "Disney+"
+  "amazon prime": "Amazon Prime", dropbox: "Dropbox", canva: "Canva", hulu: "Hulu", disney: "Disney+", "apple music": "Apple Music"
 };
 export function normalizeMerchant(raw: string): { canonicalName: string; confidence: number; needsReview: boolean } {
   const normalized = raw.toLowerCase().replace(/\d{4,}/g, " ").replace(/[^a-z+ ]/g, " ").replace(/\s+/g, " ").trim();

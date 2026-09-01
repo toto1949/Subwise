@@ -11,6 +11,8 @@ nonisolated struct DiscoveryTransaction: Identifiable, Sendable {
     let amount: Money
     let date: Date
     let paymentMethod: String?
+    var categoryHint: SubscriptionCategory? = nil
+    var transactionType: String? = nil
 }
 
 nonisolated struct DetectedSubscriptionCandidate: Identifiable, Hashable, Sendable {
@@ -27,6 +29,8 @@ nonisolated struct DetectedSubscriptionCandidate: Identifiable, Hashable, Sendab
     var evidenceCount: Int
     var source: DiscoverySource
     var isSelected = true
+    var usage: SubscriptionUsage = .unknown
+    var isImportant = false
 
     var monthlyCost: Money { frequency.monthlyEquivalent(billingAmount) }
     var subtitle: String { "\(billingAmount.formatted)/\(frequency.periodLabel)" }
@@ -43,8 +47,8 @@ nonisolated struct DetectedSubscriptionCandidate: Identifiable, Hashable, Sendab
             id: id, name: displayName, plan: frequency.rawValue, monthlyCost: monthlyCost,
             renewalText: nextExpectedCharge.map { "Renews \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "Renewal date needed",
             category: category, status: needsReview ? .review : .active,
-            valueScore: SubscriptionValueScore.calculate(monthlyCost: monthlyCost, usage: .unknown, isImportant: false, isTrial: false),
-            usage: .unknown, isImportant: false, billingSource: source == .screenshot ? .appStore : .unknown,
+            valueScore: SubscriptionValueScore.calculate(monthlyCost: monthlyCost, usage: usage, isImportant: isImportant, isTrial: false),
+            usage: usage, isImportant: isImportant, billingSource: source == .screenshot ? .appStore : .unknown,
             billingAmount: billingAmount, billingFrequency: frequency, renewalDate: nextExpectedCharge,
             paymentMethod: paymentMethod,
             discoverySource: sourceValue, symbol: presentation.symbol, colorName: presentation.color
@@ -116,7 +120,7 @@ nonisolated enum SubscriptionDetectionService {
         let nextDate = Calendar.current.date(byAdding: .day, value: medianGap, to: last.date)
         return DetectedSubscriptionCandidate(
             id: "\(source.rawValue):\(last.id)", rawMerchantName: last.rawMerchantName, displayName: normalized.name,
-            billingAmount: Money(cents: medianAmount), frequency: frequency, nextExpectedCharge: nextDate, category: MerchantNormalizationService.category(for: normalized.name),
+            billingAmount: Money(cents: medianAmount), frequency: frequency, nextExpectedCharge: nextDate, category: inferredCategory(for: last, merchant: normalized.name),
             confidence: min(normalized.needsReview ? 0.59 : 0.92, 0.58 + Double(min(group.count, 6)) * 0.06),
             needsReview: normalized.needsReview, paymentMethod: last.paymentMethod, evidenceCount: group.count, source: source
         )
@@ -139,7 +143,7 @@ nonisolated enum SubscriptionDetectionService {
             id: "\(source.rawValue):\(last.id)", rawMerchantName: last.rawMerchantName, displayName: normalized.name,
             billingAmount: Money(cents: medianAmount), frequency: frequency,
             nextExpectedCharge: Calendar.current.date(byAdding: .day, value: expectedDays(for: frequency), to: last.date),
-            category: MerchantNormalizationService.category(for: normalized.name), confidence: 0.5, needsReview: true, paymentMethod: last.paymentMethod,
+            category: inferredCategory(for: last, merchant: normalized.name), confidence: 0.5, needsReview: true, paymentMethod: last.paymentMethod,
             evidenceCount: group.count, source: source
         )
     }
@@ -162,6 +166,11 @@ nonisolated enum SubscriptionDetectionService {
         case .monthly: 30
         case .yearly: 365
         }
+    }
+
+    private static func inferredCategory(for transaction: DiscoveryTransaction, merchant: String) -> SubscriptionCategory {
+        let merchantCategory = MerchantNormalizationService.category(for: merchant)
+        return merchantCategory == .other ? (transaction.categoryHint ?? .other) : merchantCategory
     }
 }
 

@@ -102,6 +102,8 @@ nonisolated struct SavingsOpportunity: Identifiable, Hashable, Codable, Sendable
     var confidence: String
     var effortMinutes: Int
     var isSelected: Bool = true
+    var targetName: String? = nil
+    var sourceURL: URL? = nil
 }
 
 nonisolated enum SavingsEventStatus: String, Codable, Sendable { case proposed, inProgress, userVerified, failed }
@@ -142,6 +144,7 @@ final class AppStore {
     @ObservationIgnored private let optimizationEngine = LocalOptimizationEngine()
     @ObservationIgnored private let recommendationService = SavingsRecommendationService()
     @ObservationIgnored private var serverOpportunities: [SavingsOpportunity] = []
+    @ObservationIgnored private var recommendationGoal = Money(cents: 0)
 
     init(repository: any SubscriptionRepository) {
         self.repository = repository
@@ -226,12 +229,14 @@ final class AppStore {
         isLoading = false
     }
 
-    func refreshServerRecommendations() async {
+    func refreshServerRecommendations(monthlySavingsGoal: Money = Money(cents: 0)) async {
+        recommendationGoal = monthlySavingsGoal
         do {
-            serverOpportunities = try await recommendationService.generate()
+            serverOpportunities = try await recommendationService.generate(subscriptions: activeSubscriptions, monthlySavingsGoal: monthlySavingsGoal)
             opportunities = currentRecommendations()
         } catch {
             // Offline/manual tracking remains fully usable. Authenticated users get server-verified plan data when available.
+            opportunities = currentRecommendations()
         }
     }
 
@@ -293,9 +298,23 @@ final class AppStore {
             let key = "\(value.subscriptionIDs.map(\.uuidString).sorted().joined(separator: ",")):\(value.kind.rawValue)"
             return localKeys.contains(key) ? nil : value
         }
-        return (local + remote).filter { opportunity in
+        var combined = (local + remote).filter { opportunity in
             guard let primarySubscriptionID = opportunity.subscriptionIDs.first else { return true }
             return !resolvedSubscriptionIDs.contains(primarySubscriptionID)
         }
+        guard recommendationGoal.cents > 0 else { return combined }
+        var runningMonthlyCents = 0
+        var plannedSubscriptions = Set<UUID>()
+        for index in combined.indices {
+            guard let primary = combined[index].subscriptionIDs.first,
+                  plannedSubscriptions.insert(primary).inserted,
+                  runningMonthlyCents < recommendationGoal.cents else {
+                combined[index].isSelected = false
+                continue
+            }
+            combined[index].isSelected = true
+            runningMonthlyCents += combined[index].monthlySavings.cents
+        }
+        return combined
     }
 }

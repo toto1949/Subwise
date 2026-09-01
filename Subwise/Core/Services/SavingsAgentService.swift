@@ -3,9 +3,17 @@ import Foundation
 nonisolated struct AgentReply: Decodable, Sendable {
     let conversationId: UUID
     let answer: String
+    let headline: String?
+    let sections: [AgentReplySection]?
     let estimatedMonthlySavingsCents: Int?
     let recommendedSubscriptionIds: [String]
     let disclaimer: String
+}
+
+nonisolated struct AgentReplySection: Decodable, Sendable, Hashable {
+    let title: String
+    let body: String
+    let bullets: [String]
 }
 
 nonisolated enum LocalSavingsAgent {
@@ -31,6 +39,10 @@ nonisolated enum LocalSavingsAgent {
         return AgentReply(
             conversationId: conversationId ?? UUID(),
             answer: answer,
+            headline: selected.isEmpty ? "Your subscriptions look steady" : "A practical place to start",
+            sections: selected.isEmpty ? nil : selected.prefix(3).map { item in
+                AgentReplySection(title: item.title, body: item.explanation, bullets: ["Potential impact: \(item.monthlySavings.formatted)/month", "Confidence: \(item.confidence)"])
+            },
             estimatedMonthlySavingsCents: monthlySavings > 0 ? monthlySavings : nil,
             recommendedSubscriptionIds: recommendedIDs,
             disclaimer: "On-device guidance uses only your saved subscription details. Verify plan terms and cancellation results before counting savings."
@@ -47,6 +59,8 @@ nonisolated private struct AgentSubscriptionContext: Encodable {
     let userPriority: String
     let category: String
     let status: String
+    let billingFrequency: String
+    let previousMonthlyCents: Int?
 }
 
 nonisolated private struct AgentRequest: Encodable {
@@ -70,11 +84,17 @@ actor SavingsAgentService {
                 valueScore: $0.valueScore,
                 userPriority: $0.isImportant ? "keep" : "normal",
                 category: $0.category.rawValue,
-                status: $0.status.rawValue
+                status: $0.status.rawValue,
+                billingFrequency: $0.billingFrequency.apiValue,
+                previousMonthlyCents: $0.previousMonthlyCost?.cents
             )
         }
         let body = try await api.encode(AgentRequest(message: message, conversationId: conversationId, monthlySavingsGoalCents: monthlySavingsGoalCents, subscriptions: context))
         // OpenAI Responses API via Vercel takes 10-30s (logs: 18.2s, 30.1s) — iOS default 20s times out with -1001
         return try await api.send(Endpoint<AgentReply>(path: "agent/messages", method: .post, body: body, idempotencyKey: UUID().uuidString, timeoutInterval: 60))
     }
+}
+
+nonisolated private extension SubscriptionBillingFrequency {
+    var apiValue: String { switch self { case .weekly: "weekly"; case .monthly: "monthly"; case .yearly: "yearly" } }
 }

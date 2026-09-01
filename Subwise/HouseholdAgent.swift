@@ -244,7 +244,7 @@ struct AgentView: View {
                 }
                 ForEach(messages) { message in
                     VStack(alignment: message.isUser ? .trailing : .leading, spacing: 8) {
-                        HStack { if message.isUser { Spacer(minLength: 50) }; Text(message.text).padding(12).background(message.isUser ? Theme.green : Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16)).foregroundStyle(message.isUser ? .white : .primary); if !message.isUser { Spacer(minLength: 50) } }
+                        HStack { if message.isUser { Spacer(minLength: 50) }; AgentBubble(message: message); if !message.isUser { Spacer(minLength: 26) } }
                         if let cents = message.estimatedMonthlySavingsCents, cents > 0 {
                             Label("Up to \(Money(cents: cents).formatted)/month across \(message.recommendedCount) reviewed \(message.recommendedCount == 1 ? "subscription" : "subscriptions")", systemImage: "chart.line.downtrend.xyaxis")
                                 .font(.caption.bold()).foregroundStyle(Theme.green).cardStyle()
@@ -330,7 +330,7 @@ struct AgentView: View {
                 }
                 conversationID = reply.conversationId
                 let recommendedIDs = reply.recommendedSubscriptionIds.compactMap(UUID.init(uuidString:))
-                messages.append(.init(isUser: false, text: "\(reply.answer)\n\n\(reply.disclaimer)", estimatedMonthlySavingsCents: reply.estimatedMonthlySavingsCents, recommendedCount: recommendedIDs.count, recommendedSubscriptionIDs: recommendedIDs))
+                messages.append(.init(isUser: false, text: reply.answer, headline: reply.headline, sections: reply.sections ?? [], disclaimer: reply.disclaimer, estimatedMonthlySavingsCents: reply.estimatedMonthlySavingsCents, recommendedCount: recommendedIDs.count, recommendedSubscriptionIDs: recommendedIDs))
             } catch {
                 let detail: String
                 if let apiError = error as? APIError {
@@ -391,8 +391,48 @@ private struct AgentMessage: Identifiable {
     let id = UUID()
     let isUser: Bool
     let text: String
+    var headline: String? = nil
+    var sections: [AgentReplySection] = []
+    var disclaimer: String? = nil
     var estimatedMonthlySavingsCents: Int? = nil
     var recommendedCount: Int = 0
     var recommendedSubscriptionIDs: [UUID] = []
+}
+private struct AgentBubble: View {
+    let message: AgentMessage
+    var body: some View {
+        if message.isUser {
+            Text(message.text)
+                .padding(12)
+                .background(Theme.green, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .foregroundStyle(.white)
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                if let headline = message.headline {
+                    Label(headline, systemImage: "sparkles")
+                        .font(.headline).foregroundStyle(Theme.green)
+                }
+                Text(message.text).font(.body)
+                ForEach(message.sections, id: \.self) { section in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(section.title).font(.subheadline.bold())
+                        Text(section.body).font(.subheadline).foregroundStyle(.secondary)
+                        ForEach(section.bullets, id: \.self) { bullet in
+                            Label(bullet, systemImage: "checkmark.circle")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                if let disclaimer = message.disclaimer {
+                    Label(disclaimer, systemImage: "info.circle")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .padding(14)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
 }
 private struct PromptButton: View { let title: String; let action: () -> Void; init(_ title: String, action: @escaping () -> Void) { self.title = title; self.action = action }; var body: some View { Button(title, action: action).buttonStyle(.bordered).buttonBorderShape(.capsule) } }

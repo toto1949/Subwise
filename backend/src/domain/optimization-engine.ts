@@ -7,15 +7,20 @@ export type OptimizationSubscription = {
   previousMonthlyCents?: number;
   householdSize?: number;
   plans?: VerifiedPlan[];
+  alternatives?: VerifiedAlternative[];
 };
 export type VerifiedPlan = {
   name: string; monthlyCents: number; frequency: string; planType: string; householdSize?: number | null;
   eligibilityType?: string | null; sourceUrl: string; verifiedAt: Date;
 };
+export type VerifiedAlternative = {
+  merchant: string; rationale: string; plan: VerifiedPlan;
+};
 export type Recommendation = {
-  type: "cancel" | "family_plan" | "duplicate_category" | "cheaper_plan" | "annual_plan" | "student_plan" | "price_increase";
+  type: "cancel" | "family_plan" | "duplicate_category" | "cheaper_plan" | "cheaper_alternative" | "annual_plan" | "student_plan" | "price_increase";
   subscriptionIds: string[]; estimatedMonthlySavingsCents: number; estimatedAnnualSavingsCents: number;
   confidence: number; reasonCodes: string[]; explanation: string; effortMinutes: number;
+  targetName?: string; sourceUrl?: string;
 };
 
 export function optimizeSubscriptions(subscriptions: OptimizationSubscription[]): Recommendation[] {
@@ -42,6 +47,19 @@ export function optimizeSubscriptions(subscriptions: OptimizationSubscription[])
     else if (cheaper) recommendations.push(planRecommendation(item, cheaper, "cheaper_plan", 0.82, ["verified_provider_price", "lower_priced_plan"], `A lower-priced ${cheaper.name} option is listed by the provider. Compare features before deciding.`));
     if (family) recommendations.push(planRecommendation(item, family, "family_plan", 0.72, ["verified_provider_price", "household_members_present"], `${family.name} may reduce household cost. Confirm sharing rules and member eligibility first.`));
     if (student) recommendations.push(planRecommendation(item, student, "student_plan", 0.55, ["verified_provider_price", "eligibility_unverified"], `${student.name} has student pricing. SubWise has not verified your eligibility; check with the provider.`));
+    const alternative = (item.alternatives ?? [])
+      .filter((option) => option.plan.verifiedAt.getTime() >= Date.now() - 45 * 86_400_000 && option.plan.monthlyCents < item.monthlyCents)
+      .sort((a, b) => a.plan.monthlyCents - b.plan.monthlyCents)[0];
+    if (alternative) {
+      const savings = item.monthlyCents - alternative.plan.monthlyCents;
+      recommendations.push({
+        type: "cheaper_alternative", subscriptionIds: [item.id], estimatedMonthlySavingsCents: savings,
+        estimatedAnnualSavingsCents: savings * 12, confidence: 0.68,
+        reasonCodes: ["verified_provider_price", "cross_service_alternative", `source:${alternative.plan.sourceUrl}`],
+        explanation: `${alternative.merchant} ${alternative.plan.name} is listed at ${formatMoney(alternative.plan.monthlyCents)}/month versus ${formatMoney(item.monthlyCents)}/month for ${item.merchant}. ${alternative.rationale} Compare features, availability, migration effort, and current usage before switching.`,
+        effortMinutes: 8, targetName: `${alternative.merchant} ${alternative.plan.name}`, sourceUrl: alternative.plan.sourceUrl
+      });
+    }
     if (item.previousMonthlyCents && item.previousMonthlyCents < item.monthlyCents) {
       const increase = item.monthlyCents - item.previousMonthlyCents;
       recommendations.push({ type: "price_increase", subscriptionIds: [item.id], estimatedMonthlySavingsCents: increase, estimatedAnnualSavingsCents: increase * 12, confidence: 0.96,
@@ -92,7 +110,7 @@ export function optimizeSubscriptions(subscriptions: OptimizationSubscription[])
 
 function planRecommendation(item: OptimizationSubscription, plan: VerifiedPlan, type: Recommendation["type"], confidence: number, reasonCodes: string[], explanation: string): Recommendation {
   const savings = Math.max(0, item.monthlyCents - plan.monthlyCents);
-  return { type, subscriptionIds: [item.id], estimatedMonthlySavingsCents: savings, estimatedAnnualSavingsCents: savings * 12, confidence, reasonCodes: [...reasonCodes, `source:${plan.sourceUrl}`], explanation, effortMinutes: 5 };
+  return { type, subscriptionIds: [item.id], estimatedMonthlySavingsCents: savings, estimatedAnnualSavingsCents: savings * 12, confidence, reasonCodes: [...reasonCodes, `source:${plan.sourceUrl}`], explanation, effortMinutes: 5, targetName: plan.name, sourceUrl: plan.sourceUrl };
 }
 
 function formatMoney(cents: number) { return `$${(cents / 100).toFixed(2)}`; }

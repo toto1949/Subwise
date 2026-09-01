@@ -16,7 +16,8 @@ const candidateSchema = z.object({
   id: z.string().min(1), rawMerchantName: z.string().min(1).max(200), displayName: z.string().min(1).max(100),
   amountCents: z.number().int().positive(), currency: z.literal("USD"), frequency,
   nextExpectedCharge: z.string().date().nullable(), category: z.string().min(1).max(60), confidence: z.number().min(0).max(1),
-  needsReview: z.boolean(), paymentMethod: z.string().max(80).nullable(), evidenceCount: z.number().int().nonnegative(), source: z.literal("plaid")
+  needsReview: z.boolean(), paymentMethod: z.string().max(80).nullable(), evidenceCount: z.number().int().nonnegative(), source: z.literal("plaid"),
+  usage: z.enum(["high", "medium", "low", "unknown"]).default("unknown"), isImportant: z.boolean().default(false)
 });
 const confirmSchema = z.object({ candidates: z.array(candidateSchema).min(1).max(100) });
 
@@ -79,14 +80,16 @@ const plugin: FastifyPluginAsync = async (app) => {
             userId: request.userId, rawMerchantName: candidate.rawMerchantName, displayName: candidate.displayName,
             amountCents: candidate.amountCents, currency: candidate.currency, frequency: candidate.frequency.toUpperCase() as never,
             nextRenewalAt: candidate.nextExpectedCharge ? new Date(`${candidate.nextExpectedCharge}T12:00:00Z`) : null,
-            status: candidate.needsReview ? "NEEDS_REVIEW" : "ACTIVE", category: candidate.category, usage: "unknown",
+            status: candidate.needsReview ? "NEEDS_REVIEW" : "ACTIVE", category: candidate.category, usage: candidate.usage,
+            isImportant: candidate.isImportant,
             valueScore: 50, source: "plaid", sourceExternalId: candidate.id, paymentMethodLabel: candidate.paymentMethod
           },
           update: {
             rawMerchantName: candidate.rawMerchantName, displayName: candidate.displayName, amountCents: candidate.amountCents,
             frequency: candidate.frequency.toUpperCase() as never,
             nextRenewalAt: candidate.nextExpectedCharge ? new Date(`${candidate.nextExpectedCharge}T12:00:00Z`) : null,
-            status: candidate.needsReview ? "NEEDS_REVIEW" : "ACTIVE", category: candidate.category,
+            status: candidate.needsReview ? "NEEDS_REVIEW" : "ACTIVE", category: candidate.category, usage: candidate.usage,
+            isImportant: candidate.isImportant,
             paymentMethodLabel: candidate.paymentMethod
           }
         });

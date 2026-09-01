@@ -125,6 +125,23 @@ final class SubwiseTests: XCTestCase {
         XCTAssertEqual(importantHighUse, 95)
     }
 
+    func testReviewedDiscoveryPreservesUsageAndImportance() {
+        var candidate = DetectedSubscriptionCandidate(
+            id: "financekit:spotify", rawMerchantName: "SPOTIFY USA", displayName: "Spotify",
+            billingAmount: Money(cents: 1_299), frequency: .monthly, nextExpectedCharge: nil,
+            category: .music, confidence: 0.92, needsReview: false, paymentMethod: "Apple Card • My Card",
+            evidenceCount: 3, source: .financeKit
+        )
+        candidate.usage = .low
+        candidate.isImportant = true
+
+        let subscription = candidate.subscription
+        XCTAssertEqual(subscription.usage, .low)
+        XCTAssertTrue(subscription.isImportant)
+        XCTAssertEqual(subscription.paymentMethod, "Apple Card • My Card")
+        XCTAssertEqual(subscription.valueScore, 43)
+    }
+
     func testOptimizationDoesNotInventSuggestionWithoutReviewEvidence() {
         let subscription = Subscription(id: UUID(), name: "Unclassified", plan: "Monthly", monthlyCost: Money(cents: 2_000), renewalText: "Unknown", category: .other, status: .active, valueScore: 30, usage: .unknown, symbol: "square", colorName: "gray")
         XCTAssertTrue(LocalOptimizationEngine().recommendations(for: [subscription]).isEmpty)

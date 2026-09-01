@@ -28,6 +28,8 @@ nonisolated private struct ConfirmCandidate: Encodable {
     let paymentMethod: String?
     let evidenceCount: Int
     let source = "plaid"
+    let usage: String
+    let isImportant: Bool
 }
 nonisolated private struct ConfirmResponse: Decodable, Sendable { let subscriptions: [ConfirmedSubscription] }
 nonisolated private struct ConfirmedSubscription: Decodable, Sendable { let id: UUID }
@@ -71,7 +73,7 @@ actor PlaidService {
                 amountCents: value.billingAmount.cents, frequency: value.frequency.apiValue,
                 nextExpectedCharge: value.nextExpectedCharge.map(Self.dateString), category: value.category.rawValue,
                 confidence: value.confidence, needsReview: value.needsReview, paymentMethod: value.paymentMethod,
-                evidenceCount: value.evidenceCount
+                evidenceCount: value.evidenceCount, usage: value.usage.apiValue, isImportant: value.isImportant
             )
         })
         let body = try await api.encode(request)
@@ -82,6 +84,12 @@ actor PlaidService {
     private static func date(_ value: String) -> Date? { dayFormatter.date(from: value) }
     private static func dateString(_ value: Date) -> String { dayFormatter.string(from: value) }
     private static let dayFormatter: DateFormatter = { let formatter = DateFormatter(); formatter.calendar = Calendar(identifier: .gregorian); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"; return formatter }()
+}
+
+nonisolated private extension SubscriptionUsage {
+    var apiValue: String {
+        switch self { case .high: "high"; case .medium: "medium"; case .low: "low"; case .unknown: "unknown" }
+    }
 }
 
 nonisolated private extension SubscriptionBillingFrequency {
