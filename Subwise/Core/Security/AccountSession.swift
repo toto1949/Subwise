@@ -33,6 +33,21 @@ final class AccountSession {
         } catch { state = .failed(error.localizedDescription) }
     }
 
+    func deleteRemoteAccount(credential: ASAuthorizationAppleIDCredential) async throws {
+        guard let tokenData = credential.identityToken,
+              let identityToken = String(data: tokenData, encoding: .utf8),
+              let codeData = credential.authorizationCode,
+              let code = String(data: codeData, encoding: .utf8) else { throw APIError.unauthorized }
+        let body = try await api.encode(AppleAuthRequest(identityToken: identityToken, authorizationCode: code, displayName: nil))
+        _ = try await api.send(Endpoint<EmptyResponse>(path: "account", method: .delete, body: body, timeoutInterval: 120))
+    }
+
+    func finishAccountDeletion() async throws {
+        try await api.clearSession()
+        try await vault.remove("apnsDeviceToken")
+        state = .signedOut
+    }
+
     func continueOffline() { state = .offline }
     func requireAuthentication() { state = .signedOut }
     #if DEBUG

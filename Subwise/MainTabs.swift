@@ -470,6 +470,11 @@ struct SettingsView: View {
                     }
                 }
                 Section { Button("Replay onboarding") { hasCompletedOnboarding = false; dismiss() } }
+                Section {
+                    NavigationLink { DeleteAccountView() } label: {
+                        Label(account.state == .authenticated ? "Delete account" : "Remove local data", systemImage: "trash").foregroundStyle(.red)
+                    }
+                }
                 Section { Button("Sign out", role: .destructive) { Task { await account.signOut(); dismiss() } } }
             }.navigationTitle("Settings").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly) } }
         }

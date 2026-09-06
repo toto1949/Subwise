@@ -144,6 +144,7 @@ final class AppStore {
     @ObservationIgnored private let optimizationEngine = LocalOptimizationEngine()
     @ObservationIgnored private let recommendationService = SavingsRecommendationService()
     @ObservationIgnored private var serverOpportunities: [SavingsOpportunity] = []
+    @ObservationIgnored private var dataGeneration = 0
     @ObservationIgnored private var recommendationGoal = Money(cents: 0)
 
     init(repository: any SubscriptionRepository) {
@@ -211,6 +212,21 @@ final class AppStore {
         await reload()
     }
 
+    func deleteAllLocalData() async throws {
+        try await repository.deleteAllData()
+        dataGeneration += 1
+        subscriptions = []
+        savingsEvents = []
+        householdMembers = []
+        serverOpportunities = []
+        opportunities = []
+        errorMessage = nil
+        await NotificationService.shared.removeAll()
+        for key in ["profileDisplayName", "profileEmail", "monthlySavingsGoal", "householdSharingMode", "developmentProEntitlement"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
     func remove(id: UUID) async throws {
         try await repository.delete(id: id)
         await reload()
@@ -231,8 +247,11 @@ final class AppStore {
 
     func refreshServerRecommendations(monthlySavingsGoal: Money = Money(cents: 0)) async {
         recommendationGoal = monthlySavingsGoal
+        let generation = dataGeneration
         do {
-            serverOpportunities = try await recommendationService.generate(subscriptions: activeSubscriptions, monthlySavingsGoal: monthlySavingsGoal)
+            let recommendations = try await recommendationService.generate(subscriptions: activeSubscriptions, monthlySavingsGoal: monthlySavingsGoal)
+            guard generation == dataGeneration else { return }
+            serverOpportunities = recommendations
             opportunities = currentRecommendations()
         } catch {
             // Offline/manual tracking remains fully usable. Authenticated users get server-verified plan data when available.

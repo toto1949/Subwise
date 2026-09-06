@@ -23,6 +23,8 @@ export default fp(async (app) => {
       if (typeof payload.sub !== "string") throw new Error("Missing subject");
       request.userId = payload.sub;
     } catch { throw new AppError("INVALID_ACCESS_TOKEN", "The access token is invalid or expired", 401); }
+    const user = await app.db.user.findUnique({ where: { id: request.userId }, select: { id: true } });
+    if (!user) throw new AppError("INVALID_ACCESS_TOKEN", "The account is no longer available", 401);
   });
   app.decorate("issueAccessToken", (userId) => new SignJWT({ scope: "user" }).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setIssuer("subwise-api").setAudience("subwise-ios").setIssuedAt().setExpirationTime("15m").sign(secret));
   app.decorate("verifyAppleToken", async (token) => {

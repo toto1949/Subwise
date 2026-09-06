@@ -16,6 +16,9 @@ final class EntitlementStore {
     var entitlement: Entitlement = .free
     var errorMessage: String?
     var isDevelopmentCatalog = false
+    var isLoading = true
+    var isProcessingPurchase = false
+    var statusMessage: String?
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     private let productIDs = ["com.subwise.pro.monthly", "com.subwise.pro.annual"]
     private let developmentEntitlementKey = "developmentProEntitlement"
@@ -28,14 +31,19 @@ final class EntitlementStore {
     deinit { updatesTask?.cancel() }
 
     func refresh() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
         do {
             let storeProducts = try await Product.products(for: productIDs)
+            isDevelopmentCatalog = false
             products = storeProducts.sorted { $0.price < $1.price }.map {
                 Plan(id: $0.id, displayName: $0.displayName, description: $0.description, displayPrice: $0.displayPrice, storeProduct: $0)
             }
             #if DEBUG
             if products.isEmpty { useDevelopmentCatalog() }
             #endif
+            if products.isEmpty { errorMessage = "Plans are temporarily unavailable. Please try again." }
             await updateEntitlement()
         } catch {
             #if DEBUG
@@ -48,6 +56,11 @@ final class EntitlementStore {
     }
 
     func purchase(_ plan: Plan) async {
+        guard !isProcessingPurchase else { return }
+        isProcessingPurchase = true
+        errorMessage = nil
+        statusMessage = nil
+        defer { isProcessingPurchase = false }
         #if DEBUG
         guard let product = plan.storeProduct else {
             UserDefaults.standard.set(true, forKey: developmentEntitlementKey)
@@ -64,20 +77,34 @@ final class EntitlementStore {
                 let transaction = try verified(verification)
                 await transaction.finish()
                 await updateEntitlement()
-            case .pending, .userCancelled: break
+                statusMessage = "Your Subwise Pro subscription is active."
+            case .pending: statusMessage = "Your purchase is awaiting approval. Access will update when Apple confirms it."
+            case .userCancelled: break
             @unknown default: break
             }
         } catch { errorMessage = "The purchase could not be completed." }
     }
 
     func restore() async {
+        guard !isProcessingPurchase else { return }
+        isProcessingPurchase = true
+        errorMessage = nil
+        statusMessage = nil
+        defer { isProcessingPurchase = false }
         #if DEBUG
         if isDevelopmentCatalog {
             entitlement = UserDefaults.standard.bool(forKey: developmentEntitlementKey) ? .pro(expiration: nil) : .free
             return
         }
         #endif
-        do { try await StoreKit.AppStore.sync(); await updateEntitlement() }
+        do {
+            try await StoreKit.AppStore.sync()
+            await updateEntitlement()
+            switch entitlement {
+            case .free: statusMessage = "No active subscription was found for this Apple ID."
+            case .pro: statusMessage = "Your Subwise Pro subscription has been restored."
+            }
+        }
         catch { errorMessage = "Purchases could not be restored." }
     }
 

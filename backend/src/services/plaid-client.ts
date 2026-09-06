@@ -32,6 +32,15 @@ export class PlaidClient {
     return this.post<{ access_token: string; item_id: string; request_id: string }>("/item/public_token/exchange", { public_token: publicToken });
   }
 
+  async removeItem(accessToken: string) {
+    try {
+      await this.post("/item/remove", { access_token: accessToken });
+    } catch (error) {
+      // A previous successful removal may have been followed by a local database failure.
+      if (!(error instanceof AppError) || !["ITEM_NOT_FOUND", "INVALID_ACCESS_TOKEN"].includes(error.code)) throw error;
+    }
+  }
+
   async recurring(accessToken: string) {
     return this.post<{ outflow_streams: PlaidRecurringStream[]; request_id: string }>("/transactions/recurring/get", { access_token: accessToken });
   }

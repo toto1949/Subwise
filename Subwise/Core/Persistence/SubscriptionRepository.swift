@@ -4,6 +4,7 @@ import SwiftData
 @MainActor
 protocol SubscriptionRepository: AnyObject {
     func fetchAll() async throws -> [Subscription]
+    func deleteAllData() async throws
     func upsert(_ subscription: Subscription) async throws
     func delete(id: UUID) async throws
     func replaceAll(_ subscriptions: [Subscription]) async throws
@@ -123,6 +124,18 @@ final class SwiftDataSubscriptionRepository: SubscriptionRepository {
         let configuration = ModelConfiguration("Subwise", isStoredInMemoryOnly: inMemory)
         container = try ModelContainer(for: StoredSubscription.self, StoredSavingsEvent.self, StoredHouseholdMember.self, configurations: configuration)
         context.autosaveEnabled = true
+    }
+
+    func deleteAllData() async throws {
+        do {
+            try context.delete(model: StoredSubscription.self)
+            try context.delete(model: StoredSavingsEvent.self)
+            try context.delete(model: StoredHouseholdMember.self)
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     func fetchAll() async throws -> [Subscription] {
