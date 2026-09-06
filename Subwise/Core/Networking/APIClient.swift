@@ -39,6 +39,13 @@ actor APIClient {
         catch { throw APIError.transport(error) }
     }
 
+    func clearSession() async throws {
+        // A pending refresh must not restore credentials after deletion.
+        if let refreshTask { _ = try? await refreshTask.value }
+        try await vault.remove("accessToken")
+        try await vault.remove("refreshToken")
+    }
+
     func encode<T: Encodable>(_ value: T) throws -> Data { try JSONEncoder.subwise.encode(value) }
 
     private func perform<Response>(_ endpoint: Endpoint<Response>, allowAuthenticationRefresh: Bool, allowNetworkRetry: Bool) async throws -> Response where Response: Decodable & Sendable {
@@ -99,11 +106,13 @@ nonisolated enum AppConfiguration {
         return 20
     }
     static var apiBaseURL: URL {
+        #if DEBUG
         // Allow SUBWISE_API_BASE_URL override via UserDefaults for on-device debugging without rebuilding
         // e.g. defaults write com.toto.Subwise SUBWISE_API_BASE_URL_OVERRIDE -string "https://subwise-api-.../api/v1"
         if let override = UserDefaults.standard.string(forKey: "SUBWISE_API_BASE_URL_OVERRIDE"), let url = URL(string: override), !override.isEmpty {
             return url
         }
+        #endif
         if let value = Bundle.main.object(forInfoDictionaryKey: "SUBWISE_API_BASE_URL") as? String, let url = URL(string: value), !value.isEmpty {
             #if DEBUG
             #if targetEnvironment(simulator)
@@ -112,6 +121,9 @@ nonisolated enum AppConfiguration {
             if value != "http://127.0.0.1:3000/api/v1" { return url }
             #endif
             #else
+            guard url.scheme == "https", url.host != nil else {
+                preconditionFailure("Production API URL must use HTTPS")
+            }
             return url
             #endif
         }

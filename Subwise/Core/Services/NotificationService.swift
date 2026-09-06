@@ -20,6 +20,12 @@ actor NotificationService {
     }
     func cancelRenewal(id: UUID) { UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [7, 3, 1].map { "renewal.\(id).\($0)" }) }
 
+    func removeAll() {
+        let center = UNUserNotificationCenter.current()
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+    }
+
     #if DEBUG
     func deliverDevelopmentNotification(title: String, body: String) async throws {
         let content = UNMutableNotificationContent()

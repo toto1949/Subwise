@@ -1,5 +1,12 @@
 import Foundation
 
+nonisolated struct InstitutionConnection: Decodable, Identifiable, Sendable {
+    let id: UUID
+    let institutionName: String
+    let status: String
+}
+nonisolated private struct ConnectionsResponse: Decodable, Sendable { let connections: [InstitutionConnection] }
+
 nonisolated struct PlaidLinkTokenResponse: Decodable, Sendable { let linkToken: String; let expiration: String }
 nonisolated struct PlaidExchangeResponse: Decodable, Sendable { let connectionId: UUID; let institutionName: String }
 nonisolated private struct PlaidExchangeRequest: Encodable { let publicToken: String; let institutionName: String }
@@ -37,6 +44,14 @@ nonisolated private struct ConfirmedSubscription: Decodable, Sendable { let id: 
 actor PlaidService {
     private let api: APIClient
     init(api: APIClient = .shared) { self.api = api }
+
+    func connections() async throws -> [InstitutionConnection] {
+        try await api.send(Endpoint<ConnectionsResponse>(path: "discovery/connections")).connections
+    }
+
+    func disconnect(id: UUID) async throws {
+        _ = try await api.send(Endpoint<EmptyResponse>(path: "discovery/connections/\(id.uuidString)", method: .delete))
+    }
 
     func createLinkToken() async throws -> String {
         try await api.send(Endpoint<PlaidLinkTokenResponse>(path: "discovery/plaid/link-token", method: .post)).linkToken

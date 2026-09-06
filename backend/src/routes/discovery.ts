@@ -25,6 +25,24 @@ const plugin: FastifyPluginAsync = async (app) => {
   const plaid = new PlaidClient(app.config);
   app.addHook("preHandler", app.authenticate);
 
+  app.get("/discovery/connections", async (request) => ({
+    connections: await app.db.institutionConnection.findMany({
+      where: { userId: request.userId, status: "active" },
+      select: { id: true, institutionName: true, status: true },
+      orderBy: { createdAt: "asc" }
+    })
+  }));
+
+  app.delete("/discovery/connections/:id", async (request, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const connection = await app.db.institutionConnection.findFirst({ where: { id, userId: request.userId } });
+    if (!connection) throw new AppError("CONNECTION_NOT_FOUND", "Connection not found.", 404);
+    if (!app.config.DATA_ENCRYPTION_KEY) throw new AppError("PLAID_NOT_CONFIGURED", "Bank connections are temporarily unavailable.", 503);
+    await plaid.removeItem(decryptToken(connection.encryptedAccessToken, app.config.DATA_ENCRYPTION_KEY));
+    await app.db.institutionConnection.deleteMany({ where: { id, userId: request.userId } });
+    return reply.status(204).send();
+  });
+
   app.post("/discovery/plaid/link-token", async (request) => {
     const result = await plaid.createLinkToken(request.userId);
     return { linkToken: result.link_token, expiration: result.expiration };

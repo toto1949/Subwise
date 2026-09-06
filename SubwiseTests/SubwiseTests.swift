@@ -207,6 +207,23 @@ final class SubwiseTests: XCTestCase {
     }
 
     @MainActor
+    func testAccountDeletionClearsAllLocalRecordTypes() async throws {
+        let repository = try SwiftDataSubscriptionRepository(inMemory: true)
+        let item = Subscription(id: UUID(), name: "Test", plan: "Monthly", monthlyCost: Money(cents: 999), renewalText: "Tomorrow", category: .other, status: .active, valueScore: 50, symbol: "square", colorName: "teal")
+        try await repository.upsert(item)
+        try await repository.saveSavingsEvent(.init(id: UUID(), subscriptionID: item.id, action: "Plan change", estimatedAnnualSavings: Money(cents: 100), verifiedAnnualSavings: Money(cents: 100), status: .userVerified, completedAt: .now))
+        try await repository.upsertHouseholdMember(.init(id: UUID(), name: "Member", monthlySpend: Money(cents: 100), initials: "M"))
+        try await repository.deleteAllData()
+        let subscriptions = try await repository.fetchAll()
+        let savings = try await repository.fetchSavingsEvents()
+        let members = try await repository.fetchHouseholdMembers()
+        XCTAssertTrue(subscriptions.isEmpty)
+        XCTAssertTrue(savings.isEmpty)
+        XCTAssertTrue(members.isEmpty)
+        try await repository.deleteAllData()
+    }
+
+    @MainActor
     func testSwiftDataRepositoryPersistsSubscriptions() async throws {
         let repository = try SwiftDataSubscriptionRepository(inMemory: true)
         let item = Subscription(id: UUID(), name: "Test", plan: "Monthly", monthlyCost: Money(cents: 999), renewalText: "Tomorrow", category: .other, status: .active, valueScore: 50, billingSource: .serviceWebsite, symbol: "square", colorName: "teal")
