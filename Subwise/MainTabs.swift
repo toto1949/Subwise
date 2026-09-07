@@ -67,6 +67,7 @@ struct HomeView: View {
                         ) { selection = 2 }
                         .dashboardEntrance(hasAppeared, index: 0, reduceMotion: reduceMotion)
                     }
+                    WalletEntryCard()
                     if let trial = store.activeSubscriptions.first(where: { $0.status == .trial }) {
                         DashboardAlertCard(subscription: trial) { selection = 1 }
                     }

@@ -13,6 +13,7 @@ nonisolated struct DiscoveryTransaction: Identifiable, Sendable {
     let paymentMethod: String?
     var categoryHint: SubscriptionCategory? = nil
     var transactionType: String? = nil
+    var accountID: UUID? = nil
 }
 
 nonisolated struct DetectedSubscriptionCandidate: Identifiable, Hashable, Sendable {
@@ -28,6 +29,7 @@ nonisolated struct DetectedSubscriptionCandidate: Identifiable, Hashable, Sendab
     var paymentMethod: String?
     var evidenceCount: Int
     var source: DiscoverySource
+    var financeKitAccountID: UUID? = nil
     var isSelected = true
     var usage: SubscriptionUsage = .unknown
     var isImportant = false
@@ -50,7 +52,7 @@ nonisolated struct DetectedSubscriptionCandidate: Identifiable, Hashable, Sendab
             valueScore: SubscriptionValueScore.calculate(monthlyCost: monthlyCost, usage: usage, isImportant: isImportant, isTrial: false),
             usage: usage, isImportant: isImportant, billingSource: source == .screenshot ? .appStore : .unknown,
             billingAmount: billingAmount, billingFrequency: frequency, renewalDate: nextExpectedCharge,
-            paymentMethod: paymentMethod,
+            paymentMethod: paymentMethod, financeKitAccountID: financeKitAccountID,
             discoverySource: sourceValue, symbol: presentation.symbol, colorName: presentation.color
         )
     }
@@ -89,7 +91,7 @@ nonisolated enum MerchantNormalizationService {
 nonisolated enum SubscriptionDetectionService {
     static func detect(in transactions: [DiscoveryTransaction], source: DiscoverySource) -> [DetectedSubscriptionCandidate] {
         let groups = Dictionary(grouping: transactions) { transaction in
-            MerchantNormalizationService.normalize(transaction.merchantName ?? transaction.rawMerchantName).name.lowercased()
+            MerchantNormalizationService.normalize(transaction.merchantName ?? transaction.rawMerchantName).name.lowercased() + "|" + (transaction.accountID?.uuidString ?? "")
         }
         return groups.compactMap { _, group in candidate(from: group, source: source) }.sorted { $0.monthlyCost.cents > $1.monthlyCost.cents }
     }
@@ -99,7 +101,7 @@ nonisolated enum SubscriptionDetectionService {
     /// to review instead of silently discarding them after a date or price change.
     static func detectSelected(in transactions: [DiscoveryTransaction], source: DiscoverySource) -> [DetectedSubscriptionCandidate] {
         let groups = Dictionary(grouping: transactions) { transaction in
-            MerchantNormalizationService.normalize(transaction.merchantName ?? transaction.rawMerchantName).name.lowercased()
+            MerchantNormalizationService.normalize(transaction.merchantName ?? transaction.rawMerchantName).name.lowercased() + "|" + (transaction.accountID?.uuidString ?? "")
         }
         return groups.compactMap { _, group in
             candidate(from: group, source: source) ?? reviewCandidate(from: group, source: source)
@@ -122,7 +124,7 @@ nonisolated enum SubscriptionDetectionService {
             id: "\(source.rawValue):\(last.id)", rawMerchantName: last.rawMerchantName, displayName: normalized.name,
             billingAmount: Money(cents: medianAmount), frequency: frequency, nextExpectedCharge: nextDate, category: inferredCategory(for: last, merchant: normalized.name),
             confidence: min(normalized.needsReview ? 0.59 : 0.92, 0.58 + Double(min(group.count, 6)) * 0.06),
-            needsReview: normalized.needsReview, paymentMethod: last.paymentMethod, evidenceCount: group.count, source: source
+            needsReview: normalized.needsReview, paymentMethod: last.paymentMethod, evidenceCount: group.count, source: source, financeKitAccountID: last.accountID
         )
     }
 
@@ -144,7 +146,7 @@ nonisolated enum SubscriptionDetectionService {
             billingAmount: Money(cents: medianAmount), frequency: frequency,
             nextExpectedCharge: Calendar.current.date(byAdding: .day, value: expectedDays(for: frequency), to: last.date),
             category: inferredCategory(for: last, merchant: normalized.name), confidence: 0.5, needsReview: true, paymentMethod: last.paymentMethod,
-            evidenceCount: group.count, source: source
+            evidenceCount: group.count, source: source, financeKitAccountID: last.accountID
         )
     }
 

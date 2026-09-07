@@ -8,6 +8,23 @@ struct ContentView: View {
 
     var body: some View {
         Group {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-uiTestWallet") {
+                NavigationStack { WalletView() }.environment(store).environment(account)
+            } else { appContent }
+            #else
+            appContent
+            #endif
+        }
+        .tint(Theme.green)
+        .onOpenURL { url in
+            guard url.host == "subwise-api.vercel.app" else { return }
+            let parts = url.pathComponents.filter { $0 != "/" }
+            guard parts.count == 3, parts[0] == "household", parts[1] == "invite", parts[2].count < 500 else { return }
+            pendingHouseholdInviteToken = parts[2]
+        }
+    }
+    @ViewBuilder private var appContent: some View {
             if hasCompletedOnboarding {
                 switch account.state {
                 case .authenticated, .development, .offline:
@@ -20,14 +37,6 @@ struct ContentView: View {
             } else {
                 OnboardingFlow { hasCompletedOnboarding = true }
             }
-        }
-        .tint(Theme.green)
-        .onOpenURL { url in
-            guard url.host == "subwise-api.vercel.app" else { return }
-            let parts = url.pathComponents.filter { $0 != "/" }
-            guard parts.count == 3, parts[0] == "household", parts[1] == "invite", parts[2].count < 500 else { return }
-            pendingHouseholdInviteToken = parts[2]
-        }
     }
 }
 
