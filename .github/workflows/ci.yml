@@ -63,3 +63,8 @@ jobs:
           -derivedDataPath "$RUNNER_TEMP/SubwiseDerivedData"
           CODE_SIGNING_ALLOWED=NO
           build
+
+      - name: Run iOS unit tests
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          xcodebuild -project Subwise.xcodeproj -scheme Subwise -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath "$RUNNER_TEMP/SubwiseDerivedData" -only-testing:SubwiseTests CODE_SIGNING_ALLOWED=NO test

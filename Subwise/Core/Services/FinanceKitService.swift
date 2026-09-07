@@ -87,7 +87,8 @@ struct FinanceKitService {
                 date: transaction.postedDate ?? transaction.transactionDate,
                 paymentMethod: accountLabels[transaction.accountID] ?? "Apple Wallet",
                 categoryHint: Self.category(for: transaction.merchantCategoryCode),
-                transactionType: Self.transactionTypeName(transaction.transactionType)
+                transactionType: Self.transactionTypeName(transaction.transactionType),
+                    accountID: transaction.accountID
             )
         }
         return FinanceKitScanResult(
@@ -101,7 +102,7 @@ struct FinanceKitService {
     @available(iOS 17.4, *)
     func candidates(from transactions: [Transaction]) -> [DetectedSubscriptionCandidate] {
         let values = transactions
-            .filter { $0.creditDebitIndicator == .debit }
+            .filter { $0.creditDebitIndicator == .debit && $0.status == .booked && $0.transactionAmount.currencyCode == "USD" && $0.transactionAmount.amount > 0 }
             .map { transaction in
                 DiscoveryTransaction(
                     id: transaction.id.uuidString,
@@ -111,7 +112,8 @@ struct FinanceKitService {
                     date: transaction.postedDate ?? transaction.transactionDate,
                     paymentMethod: "Apple Wallet",
                     categoryHint: Self.category(for: transaction.merchantCategoryCode),
-                    transactionType: Self.transactionTypeName(transaction.transactionType)
+                    transactionType: Self.transactionTypeName(transaction.transactionType),
+                    accountID: transaction.accountID
                 )
             }
         return SubscriptionDetectionService.detectSelected(in: values, source: .financeKit)

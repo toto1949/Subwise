@@ -13,6 +13,7 @@ nonisolated struct DiscoveryTransaction: Identifiable, Sendable {
     let paymentMethod: String?
     var categoryHint: SubscriptionCategory? = nil
     var transactionType: String? = nil
+    var accountID: UUID? = nil
 }
 
 nonisolated struct DetectedSubscriptionCandidate: Identifiable, Hashable, Sendable {
@@ -89,7 +90,7 @@ nonisolated enum MerchantNormalizationService {
 nonisolated enum SubscriptionDetectionService {
     static func detect(in transactions: [DiscoveryTransaction], source: DiscoverySource) -> [DetectedSubscriptionCandidate] {
         let groups = Dictionary(grouping: transactions) { transaction in
-            MerchantNormalizationService.normalize(transaction.merchantName ?? transaction.rawMerchantName).name.lowercased()
+            MerchantNormalizationService.normalize(transaction.merchantName ?? transaction.rawMerchantName).name.lowercased() + "|" + (transaction.accountID?.uuidString ?? "")
         }
         return groups.compactMap { _, group in candidate(from: group, source: source) }.sorted { $0.monthlyCost.cents > $1.monthlyCost.cents }
     }
@@ -99,7 +100,7 @@ nonisolated enum SubscriptionDetectionService {
     /// to review instead of silently discarding them after a date or price change.
     static func detectSelected(in transactions: [DiscoveryTransaction], source: DiscoverySource) -> [DetectedSubscriptionCandidate] {
         let groups = Dictionary(grouping: transactions) { transaction in
-            MerchantNormalizationService.normalize(transaction.merchantName ?? transaction.rawMerchantName).name.lowercased()
+            MerchantNormalizationService.normalize(transaction.merchantName ?? transaction.rawMerchantName).name.lowercased() + "|" + (transaction.accountID?.uuidString ?? "")
         }
         return groups.compactMap { _, group in
             candidate(from: group, source: source) ?? reviewCandidate(from: group, source: source)

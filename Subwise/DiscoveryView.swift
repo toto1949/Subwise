@@ -34,6 +34,7 @@ struct SubscriptionDiscoveryView: View {
                         symbol: "building.columns.fill", tint: Theme.green, actionTitle: "Connect account"
                     ) { PlaidConnectionView() }
 
+                    WalletEntryCard()
                     walletDiscoveryCard
 
                     if !walletCandidates.isEmpty {
@@ -413,7 +414,7 @@ struct CandidateReviewView: View {
                 let serverIDs = persistToBackend ? try await PlaidService().confirm(selected) : []
                 for (index, candidate) in selected.enumerated() {
                     let normalizedName = MerchantNormalizationService.normalize(candidate.displayName).name
-                    if let existing = store.activeSubscriptions.first(where: { MerchantNormalizationService.normalize($0.name).name.caseInsensitiveCompare(normalizedName) == .orderedSame }) {
+                    if let existing = store.activeSubscriptions.first(where: { MerchantNormalizationService.normalize($0.name).name.caseInsensitiveCompare(normalizedName) == .orderedSame && (candidate.source != .financeKit || $0.paymentMethod == candidate.paymentMethod) }) {
                         var updated = candidate.subscription(id: existing.id)
                         updated.usage = candidate.usage == .unknown ? existing.usage : candidate.usage
                         updated.isImportant = candidate.isImportant || existing.isImportant
