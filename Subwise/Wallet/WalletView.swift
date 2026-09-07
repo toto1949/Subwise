@@ -222,8 +222,24 @@ struct WalletView: View {
                     }
                     Text(account.isLiability ? "A positive balance represents an amount owed; a negative balance represents credit. Availability follows your institution’s data." : "Booked and available balances may differ while transactions are pending.").font(.caption).foregroundStyle(.secondary)
                 }
+                let history = snapshot.balances.filter { $0.accountID == account.id && $0.kind == "Booked" }.sorted { $0.date < $1.date }
+                if history.count > 1 {
+                    Section("Booked balance history") {
+                        Chart(history) { point in
+                            LineMark(x: .value("Date", point.date), y: .value("Balance", NSDecimalNumber(decimal: point.amount).doubleValue)).foregroundStyle(Theme.green)
+                                .accessibilityLabel(point.date.formatted(date: .abbreviated, time: .omitted))
+                                .accessibilityValue(WalletAnalytics.format(point.amount, currency: point.currency))
+                        }.frame(height: 160)
+                        Text(account.currency).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 if account.isLiability {
                     Section("Credit details") {
+                        if let limit = account.creditLimit, limit > 0, let balance = snapshot.balance(for: account.id, kind: "Booked") {
+                            let ratio = max(0, NSDecimalNumber(decimal: balance.amount / limit).doubleValue)
+                            LabeledContent("Credit used", value: ratio.formatted(.percent.precision(.fractionLength(0))))
+                            ProgressView(value: min(ratio, 1)).tint(Theme.green)
+                        }
                         if let limit = account.creditLimit { LabeledContent("Credit limit", value: WalletAnalytics.format(limit, currency: account.currency)) }
                         if let minimum = account.minimumPayment { LabeledContent("Minimum next payment", value: WalletAnalytics.format(minimum, currency: account.currency)) }
                         if let due = account.paymentDue { LabeledContent("Payment due", value: due.formatted(date: .abbreviated, time: .omitted)) }
@@ -244,7 +260,13 @@ struct WalletView: View {
         loading = true; error = nil
         defer { if activeLoad == loadID { loading = false } }
         do {
-            let result = try await FinanceKitService().loadWallet()
+            let result: WalletSnapshot
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-uiTestWallet") { result = WalletPreviewData.snapshot }
+            else { result = try await FinanceKitService().loadWallet() }
+            #else
+            result = try await FinanceKitService().loadWallet()
+            #endif
             try Task.checkCancellation()
             guard scenePhase == .active, activeLoad == loadID else { return }
             snapshot = result

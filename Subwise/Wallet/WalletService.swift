@@ -37,7 +37,9 @@ extension FinanceKitService {
                     let merchant = value.merchantName ?? value.transactionDescription
                     let type = Self.walletLabel(String(describing: value.transactionType))
                     let status = value.status == .booked ? "Posted" : Self.walletLabel(String(describing: value.status))
-                    return WalletTransaction(id: value.id, accountID: value.accountID, merchant: merchant, description: value.originalTransactionDescription, amount: value.transactionAmount.amount, currency: value.transactionAmount.currencyCode, date: value.transactionDate, postedDate: value.postedDate, isDebit: value.creditDebitIndicator == .debit, status: status, type: type, category: WalletAnalytics.category(merchant: merchant, mcc: value.merchantCategoryCode.map { Int($0.rawValue) }, type: type), foreignAmount: value.foreignCurrencyAmount?.amount, foreignCurrency: value.foreignCurrencyAmount?.currencyCode, exchangeRate: value.foreignCurrencyExchangeRate)
+                    let exchangeRate: Decimal?
+                    if #available(iOS 18, *) { exchangeRate = value.foreignCurrencyExchangeRate } else { exchangeRate = nil }
+                    return WalletTransaction(id: value.id, accountID: value.accountID, merchant: merchant, description: value.originalTransactionDescription, amount: value.transactionAmount.amount, currency: value.transactionAmount.currencyCode, date: value.transactionDate, postedDate: value.postedDate, isDebit: value.creditDebitIndicator == .debit, status: status, type: type, category: WalletAnalytics.category(merchant: merchant, mcc: value.merchantCategoryCode.map { Int($0.rawValue) }, type: type), foreignAmount: value.foreignCurrencyAmount?.amount, foreignCurrency: value.foreignCurrencyAmount?.currencyCode, exchangeRate: exchangeRate)
                 }
                 var balances: [UUID: AccountBalance] = [:]
                 for try await change in store.accountBalanceHistory(forAccountID: account.id, isMonitoring: false) {
