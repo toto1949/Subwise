@@ -196,7 +196,7 @@ private struct WalletFinanceKitCard: View {
             guard !selected.isEmpty else { return }
             let candidates = financeKit.candidates(from: selected)
             if candidates.isEmpty {
-                onSelection([], "No matching pair was found. Choose at least two debit charges from the same service, then try again.", nil)
+                onSelection([], "No matching pair was found. Choose at least two posted USD debit charges from the same service and account, then try again.", nil)
             } else {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 onSelection(candidates, nil, "Analyzed \(selected.count) transactions you selected manually.")
@@ -414,7 +414,7 @@ struct CandidateReviewView: View {
                 let serverIDs = persistToBackend ? try await PlaidService().confirm(selected) : []
                 for (index, candidate) in selected.enumerated() {
                     let normalizedName = MerchantNormalizationService.normalize(candidate.displayName).name
-                    if let existing = store.activeSubscriptions.first(where: { MerchantNormalizationService.normalize($0.name).name.caseInsensitiveCompare(normalizedName) == .orderedSame && (candidate.source != .financeKit || $0.paymentMethod == candidate.paymentMethod) }) {
+                    if let existing = store.activeSubscriptions.first(where: { MerchantNormalizationService.normalize($0.name).name.caseInsensitiveCompare(normalizedName) == .orderedSame && (candidate.source != .financeKit || (candidate.financeKitAccountID != nil && $0.financeKitAccountID == candidate.financeKitAccountID)) }) {
                         var updated = candidate.subscription(id: existing.id)
                         updated.usage = candidate.usage == .unknown ? existing.usage : candidate.usage
                         updated.isImportant = candidate.isImportant || existing.isImportant

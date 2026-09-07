@@ -20,6 +20,20 @@ final class WalletTests: XCTestCase {
         XCTAssertTrue(SubscriptionDetectionService.detect(in: values, source: .financeKit).isEmpty)
         XCTAssertTrue(SubscriptionDetectionService.detectSelected(in: values, source: .financeKit).isEmpty)
     }
+    @MainActor
+    func testImportedAccountIdentitySurvivesLocalPersistenceAndCodable() throws {
+        let start = Date(timeIntervalSince1970: 1_780_000_000)
+        let values = [0, 30, 60].map { day in
+            DiscoveryTransaction(id: String(day), rawMerchantName: "Netflix", merchantName: "Netflix", amount: Money(cents: 999), date: start.addingTimeInterval(Double(day) * 86_400), paymentMethod: "Wallet", accountID: account)
+        }
+        let candidate = try XCTUnwrap(SubscriptionDetectionService.detect(in: values, source: .financeKit).first)
+        XCTAssertEqual(candidate.financeKitAccountID, account)
+        let subscription = candidate.subscription
+        XCTAssertEqual(StoredSubscription(subscription).domain.financeKitAccountID, account)
+        let encoded = try JSONEncoder().encode(subscription)
+        XCTAssertEqual(try JSONDecoder().decode(Subscription.self, from: encoded).financeKitAccountID, account)
+    }
+
     func testInsightsRequireSameAccountAndCurrency() {
         let first = transaction()
         let foreign = transaction(currency: "GBP")

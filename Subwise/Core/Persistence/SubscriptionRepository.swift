@@ -72,6 +72,7 @@ final class StoredSubscription {
     var billingAmountCents: Int?
     var billingFrequencyRaw: String = SubscriptionBillingFrequency.monthly.rawValue
     var renewalDate: Date?
+    var financeKitAccountID: UUID?
     var paymentMethod: String?
     var discoverySourceRaw: String = SubscriptionDiscoverySource.manual.rawValue
     var previousMonthlyCents: Int?
@@ -85,7 +86,7 @@ final class StoredSubscription {
         valueScore = value.valueScore; usageRaw = value.usage.rawValue; isImportant = value.isImportant
         billingSourceRaw = value.billingSource.rawValue
         billingAmountCents = value.billingAmount?.cents; billingFrequencyRaw = value.billingFrequency.rawValue
-        renewalDate = value.renewalDate; paymentMethod = value.paymentMethod; discoverySourceRaw = value.discoverySource.rawValue
+        renewalDate = value.renewalDate; paymentMethod = value.paymentMethod; financeKitAccountID = value.financeKitAccountID; discoverySourceRaw = value.discoverySource.rawValue
         previousMonthlyCents = value.previousMonthlyCost?.cents
         symbol = value.symbol; colorName = value.colorName; updatedAt = .now
     }
@@ -95,7 +96,7 @@ final class StoredSubscription {
         categoryRaw = value.category.rawValue; statusRaw = value.status.rawValue; valueScore = value.valueScore
         usageRaw = value.usage.rawValue; isImportant = value.isImportant; billingSourceRaw = value.billingSource.rawValue
         billingAmountCents = value.billingAmount?.cents; billingFrequencyRaw = value.billingFrequency.rawValue
-        renewalDate = value.renewalDate; paymentMethod = value.paymentMethod; discoverySourceRaw = value.discoverySource.rawValue
+        renewalDate = value.renewalDate; paymentMethod = value.paymentMethod; financeKitAccountID = value.financeKitAccountID; discoverySourceRaw = value.discoverySource.rawValue
         previousMonthlyCents = value.previousMonthlyCost?.cents
         symbol = value.symbol; colorName = value.colorName; updatedAt = .now
     }
@@ -108,7 +109,7 @@ final class StoredSubscription {
                      isImportant: isImportant, billingSource: SubscriptionBillingSource(rawValue: billingSourceRaw) ?? .unknown,
                      billingAmount: billingAmountCents.map(Money.init(cents:)),
                      billingFrequency: SubscriptionBillingFrequency(rawValue: billingFrequencyRaw) ?? .monthly,
-                     renewalDate: renewalDate, paymentMethod: paymentMethod,
+                     renewalDate: renewalDate, paymentMethod: paymentMethod, financeKitAccountID: financeKitAccountID,
                      discoverySource: SubscriptionDiscoverySource(rawValue: discoverySourceRaw) ?? .manual,
                      previousMonthlyCost: previousMonthlyCents.map(Money.init(cents:)),
                      symbol: symbol, colorName: colorName)

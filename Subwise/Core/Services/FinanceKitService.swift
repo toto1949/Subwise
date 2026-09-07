@@ -52,51 +52,21 @@ struct FinanceKitService {
     #if canImport(FinanceKit)
     @available(iOS 17.4, *)
     func discoverFromAuthorizedAccounts() async throws -> FinanceKitScanResult {
-        guard readiness == .ready else {
-            throw readiness == .capabilityMissing ? FinanceKitDiscoveryError.capabilityMissing : FinanceKitDiscoveryError.unavailable
-        }
-
-        let store = FinanceStore.shared
-        let currentStatus = try await store.authorizationStatus()
-        let status = currentStatus == .notDetermined ? try await store.requestAuthorization() : currentStatus
-        guard status == .authorized else { throw FinanceKitDiscoveryError.authorizationDenied }
-
-        let accounts = try await store.accounts(query: AccountQuery())
-        let accountLabels = Dictionary(uniqueKeysWithValues: accounts.map { account in
-            let label = [account.institutionName, account.displayName]
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .joined(separator: " • ")
-            return (account.id, label.isEmpty ? "Apple Wallet" : label)
-        })
-        let transactions = try await store.transactions(query: TransactionQuery(
-            sortDescriptors: [SortDescriptor(\Transaction.transactionDate, order: .reverse)],
-            limit: 5_000
-        ))
-        let eligibleDebits = transactions.filter {
-            $0.creditDebitIndicator == .debit && $0.status == .booked && $0.transactionAmount.amount > 0
-        }
-        guard !eligibleDebits.isEmpty else { throw FinanceKitDiscoveryError.noTransactions }
-
-        let supported = eligibleDebits.filter { $0.transactionAmount.currencyCode.uppercased() == "USD" }
+        let snapshot = try await loadWallet()
+        let eligible = snapshot.transactions.filter { $0.isDebit && $0.isPosted && !$0.isTransfer && $0.amount > 0 }
+        guard !eligible.isEmpty else { throw FinanceKitDiscoveryError.noTransactions }
+        let supported = eligible.filter { $0.currency == "USD" }
         let values = supported.map { transaction in
-            DiscoveryTransaction(
-                id: transaction.id.uuidString,
-                rawMerchantName: transaction.originalTransactionDescription,
-                merchantName: transaction.merchantName,
-                amount: Money(cents: abs(NSDecimalNumber(decimal: transaction.transactionAmount.amount * 100).intValue)),
-                date: transaction.postedDate ?? transaction.transactionDate,
-                paymentMethod: accountLabels[transaction.accountID] ?? "Apple Wallet",
-                categoryHint: Self.category(for: transaction.merchantCategoryCode),
-                transactionType: Self.transactionTypeName(transaction.transactionType),
-                    accountID: transaction.accountID
-            )
+            DiscoveryTransaction(id: transaction.id.uuidString, rawMerchantName: transaction.description,
+                merchantName: transaction.merchant,
+                amount: Money(cents: NSDecimalNumber(decimal: transaction.amount * 100).intValue),
+                date: transaction.effectiveDate,
+                paymentMethod: snapshot.account(transaction.accountID)?.label,
+                transactionType: transaction.type, accountID: transaction.accountID)
         }
-        return FinanceKitScanResult(
-            candidates: SubscriptionDetectionService.detect(in: values, source: .financeKit),
-            accountCount: accounts.count,
-            analyzedTransactionCount: values.count,
-            ignoredCurrencyCount: eligibleDebits.count - supported.count
-        )
+        return FinanceKitScanResult(candidates: SubscriptionDetectionService.detect(in: values, source: .financeKit),
+            accountCount: snapshot.accounts.count, analyzedTransactionCount: values.count,
+            ignoredCurrencyCount: eligible.count - supported.count)
     }
 
     @available(iOS 17.4, *)

@@ -29,6 +29,7 @@ nonisolated struct DetectedSubscriptionCandidate: Identifiable, Hashable, Sendab
     var paymentMethod: String?
     var evidenceCount: Int
     var source: DiscoverySource
+    var financeKitAccountID: UUID? = nil
     var isSelected = true
     var usage: SubscriptionUsage = .unknown
     var isImportant = false
@@ -51,7 +52,7 @@ nonisolated struct DetectedSubscriptionCandidate: Identifiable, Hashable, Sendab
             valueScore: SubscriptionValueScore.calculate(monthlyCost: monthlyCost, usage: usage, isImportant: isImportant, isTrial: false),
             usage: usage, isImportant: isImportant, billingSource: source == .screenshot ? .appStore : .unknown,
             billingAmount: billingAmount, billingFrequency: frequency, renewalDate: nextExpectedCharge,
-            paymentMethod: paymentMethod,
+            paymentMethod: paymentMethod, financeKitAccountID: financeKitAccountID,
             discoverySource: sourceValue, symbol: presentation.symbol, colorName: presentation.color
         )
     }
@@ -123,7 +124,7 @@ nonisolated enum SubscriptionDetectionService {
             id: "\(source.rawValue):\(last.id)", rawMerchantName: last.rawMerchantName, displayName: normalized.name,
             billingAmount: Money(cents: medianAmount), frequency: frequency, nextExpectedCharge: nextDate, category: inferredCategory(for: last, merchant: normalized.name),
             confidence: min(normalized.needsReview ? 0.59 : 0.92, 0.58 + Double(min(group.count, 6)) * 0.06),
-            needsReview: normalized.needsReview, paymentMethod: last.paymentMethod, evidenceCount: group.count, source: source
+            needsReview: normalized.needsReview, paymentMethod: last.paymentMethod, evidenceCount: group.count, source: source, financeKitAccountID: last.accountID
         )
     }
 
@@ -145,7 +146,7 @@ nonisolated enum SubscriptionDetectionService {
             billingAmount: Money(cents: medianAmount), frequency: frequency,
             nextExpectedCharge: Calendar.current.date(byAdding: .day, value: expectedDays(for: frequency), to: last.date),
             category: inferredCategory(for: last, merchant: normalized.name), confidence: 0.5, needsReview: true, paymentMethod: last.paymentMethod,
-            evidenceCount: group.count, source: source
+            evidenceCount: group.count, source: source, financeKitAccountID: last.accountID
         )
     }
 

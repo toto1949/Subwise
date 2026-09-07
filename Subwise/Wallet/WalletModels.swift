@@ -10,7 +10,7 @@ nonisolated struct WalletAccount: Identifiable, Sendable, Hashable {
     var minimumPayment: Decimal?
     var paymentDue: Date?
     var overduePayment: Decimal?
-    var label: String { institution.isEmpty ? name : "\(institution) · \(name)" }
+    var label: String { institution.isEmpty ? name : "\(institution) • \(name)" }
 }
 
 nonisolated struct WalletTransaction: Identifiable, Sendable, Hashable {

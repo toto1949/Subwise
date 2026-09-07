@@ -61,6 +61,7 @@ nonisolated struct Subscription: Identifiable, Hashable, Codable, Sendable {
     var billingFrequency: SubscriptionBillingFrequency = .monthly
     var renewalDate: Date? = nil
     var paymentMethod: String? = nil
+    var financeKitAccountID: UUID? = nil
     var discoverySource: SubscriptionDiscoverySource = .manual
     var previousMonthlyCost: Money? = nil
     var symbol: String
